@@ -47,12 +47,46 @@ def test_is_matching_invalid_edge(fn, edgeset):
 
 @pytest.mark.parametrize("graph_type", (nx.MultiGraph, nx.DiGraph, nx.MultiDiGraph))
 @pytest.mark.parametrize(
-    "fn", (nx.max_weight_matching, nx.min_weight_matching, nx.maximal_matching)
+    "fn",
+    (
+        nx.max_weight_matching,
+        nx.min_weight_matching,
+        nx.maximal_matching,
+        nx.max_cardinality_matching_gabow,
+    ),
 )
 def test_wrong_graph_type(fn, graph_type):
     G = graph_type()
     with pytest.raises(nx.NetworkXNotImplemented):
         fn(G)
+
+
+def _brute_force_max_matching_size(G):
+    """Independent oracle for small graphs: exhaustively search for the
+    largest matching by recursive backtracking (pick an unmatched vertex,
+    either leave it unmatched or pair it with each available neighbor).
+    Only intended for graphs with few nodes -- this is exponential time.
+    """
+    nodes = list(G.nodes())
+    adj = {v: {u for u in G[v] if u != v} for v in nodes}
+    best = 0
+
+    def backtrack(remaining, size):
+        nonlocal best
+        if size > best:
+            best = size
+        if not remaining:
+            return
+        v = next(iter(remaining))
+        rest = remaining - {v}
+        # Leave v unmatched.
+        backtrack(rest, size)
+        # Try matching v to each still-available neighbor.
+        for u in adj[v] & remaining:
+            backtrack(rest - {u}, size + 1)
+
+    backtrack(frozenset(nodes), 0)
+    return best
 
 
 class TestMaxWeightMatching:
@@ -554,3 +588,190 @@ class TestMaximalMatching:
             matching = nx.maximal_matching(G)
             assert len(matching) == 1
             assert nx.is_maximal_matching(G, matching)
+
+
+class TestMaxCardinalityMatchingGabow:
+    """Unit tests for
+    :func:`~networkx.algorithms.matching.max_cardinality_matching_gabow`.
+    """
+
+    def _check(self, G, expected_size=None):
+        """Check both use_heuristic_fallback settings against each other,
+        against the size found by max_weight_matching(maxcardinality=True),
+        and (for small graphs) against a brute-force oracle -- and confirm
+        the result is always a valid matching of G.
+        """
+        got = nx.max_cardinality_matching_gabow(G)
+        got_heur = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
+        assert nx.is_matching(G, got)
+        assert nx.is_matching(G, got_heur)
+        assert len(got) == len(got_heur)
+        ref = nx.max_weight_matching(G, maxcardinality=True)
+        assert len(got) == len(ref)
+        if G.number_of_nodes() <= 10:
+            assert len(got) == _brute_force_max_matching_size(G)
+        if expected_size is not None:
+            assert len(got) == expected_size
+        return got
+
+    # -- trivial / edge cases --------------------------------------------
+
+    def test_no_nodes(self):
+        G = nx.Graph()
+        assert nx.max_cardinality_matching_gabow(G) == set()
+
+    def test_single_node_no_edges(self):
+        G = nx.Graph()
+        G.add_node(0)
+        self._check(G, expected_size=0)
+
+    def test_no_edges(self):
+        G = nx.Graph()
+        G.add_nodes_from(range(5))
+        self._check(G, expected_size=0)
+
+    def test_single_edge(self):
+        G = nx.Graph([(0, 1)])
+        assert edges_equal(self._check(G, expected_size=1), {(0, 1)})
+
+    def test_self_loops_are_ignored(self):
+        G = nx.Graph()
+        G.add_edges_from([(0, 0), (0, 1), (1, 1), (2, 2)])
+        got = self._check(G, expected_size=1)
+        assert not any(u == v for u, v in got)
+
+    def test_disconnected_components(self):
+        G = nx.disjoint_union_all(
+            [nx.cycle_graph(5), nx.complete_graph(4), nx.path_graph(3), nx.Graph([(0, 0)])]
+        )
+        # C5 contributes 2, K4 contributes 2, P3 contributes 1, the
+        # self-loop-only component contributes 0.
+        self._check(G, expected_size=5)
+
+    def test_isolated_vertices_mixed_in(self):
+        G = nx.path_graph(4)
+        G.add_nodes_from(["isolated_a", "isolated_b"])
+        self._check(G, expected_size=2)
+
+    # -- hand-verified small graphs ---------------------------------------
+
+    def test_hand_verified_square(self):
+        # A 4-cycle has a perfect matching of size 2.
+        G = nx.cycle_graph(4)
+        assert edges_equal(self._check(G, expected_size=2), {(0, 1), (2, 3)})
+
+    def test_hand_verified_star(self):
+        # In a star, only one edge can ever be matched.
+        G = nx.star_graph(5)
+        self._check(G, expected_size=1)
+
+    def test_hand_verified_path(self):
+        # P_6 (6 nodes, 5 edges) has a perfect matching of size 3.
+        G = nx.path_graph(6)
+        self._check(G, expected_size=3)
+
+    def test_hand_verified_two_triangles_sharing_a_bridge(self):
+        # Two odd triangles {0,1,2} and {3,4,5} joined by bridge 2-3.
+        # A perfect matching of size 3 exists by using the bridge itself:
+        # (0,1), (2,3), (4,5).
+        G = nx.Graph([(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3), (2, 3)])
+        self._check(G, expected_size=3)
+
+    # -- blossom contraction (odd cycles) ----------------------------------
+
+    @pytest.mark.parametrize("k", [3, 5, 7, 9, 11])
+    def test_odd_cycle(self, k):
+        G = nx.cycle_graph(k)
+        self._check(G, expected_size=(k - 1) // 2)
+
+    def test_odd_cycle_with_pendant(self):
+        # A blossom (C5) with an extra pendant vertex attached to it: the
+        # augmenting path must pass straight through the blossom to reach
+        # the pendant, forcing the blossom to actually be contracted and
+        # then correctly "un-contracted" during path reconstruction.
+        G = nx.cycle_graph(5)
+        G.add_edge(0, "pendant")
+        self._check(G, expected_size=3)
+
+    def test_chained_blossoms(self):
+        # A chain of k triangles, each sharing a vertex with the next,
+        # forcing repeated blossom shrinks along a single search.
+        G = nx.Graph()
+        for i in range(6):
+            base = i * 2
+            G.add_edges_from([(base, base + 1), (base + 1, base + 2), (base + 2, base)])
+        self._check(G)
+
+    def test_nested_style_blossom(self):
+        # The classic "blossom in a blossom" stress graph: an outer 5-cycle
+        # where one edge is replaced by a path that itself closes into a
+        # smaller odd cycle, forcing a blossom step to fire while already
+        # inside another blossom's search.
+        G = nx.Graph(
+            [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 4),
+                (4, 0),
+                (2, 5),
+                (5, 6),
+                (6, 3),
+            ]
+        )
+        self._check(G)
+
+    # -- cross-validation on random graphs ----------------------------------
+
+    @pytest.mark.parametrize("seed", range(25))
+    def test_random_small_graphs(self, seed):
+        n = (seed % 9) + 1
+        p = [0.1, 0.3, 0.5, 0.7, 0.9][seed % 5]
+        G = nx.gnp_random_graph(n, p, seed=seed)
+        self._check(G)
+
+    @pytest.mark.parametrize("seed", range(15))
+    def test_random_larger_graphs(self, seed):
+        n = 20 + 5 * (seed % 6)
+        p = [0.05, 0.15, 0.4][seed % 3]
+        G = nx.gnp_random_graph(n, p, seed=100 + seed)
+        self._check(G)
+
+    def test_random_graphs_with_self_loops(self):
+        rng_seeds = range(10)
+        for seed in rng_seeds:
+            G = nx.gnp_random_graph(12, 0.3, seed=seed)
+            nodes = list(G.nodes())
+            if nodes:
+                G.add_edge(nodes[seed % len(nodes)], nodes[seed % len(nodes)])
+            self._check(G)
+
+    # -- heuristic fallback --------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "G",
+        [
+            nx.Graph(),
+            nx.path_graph(1),
+            nx.cycle_graph(7),
+            nx.complete_graph(9),
+            nx.star_graph(6),
+            nx.disjoint_union_all([nx.cycle_graph(5), nx.cycle_graph(5)]),
+        ],
+    )
+    def test_heuristic_fallback_matches_default(self, G):
+        default = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=False)
+        heuristic = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
+        assert nx.is_matching(G, default)
+        assert nx.is_matching(G, heuristic)
+        assert len(default) == len(heuristic)
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_heuristic_fallback_matches_random(self, seed):
+        n = 15 + seed
+        p = 0.1 + 0.03 * (seed % 10)
+        G = nx.gnp_random_graph(n, p, seed=seed)
+        default = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=False)
+        heuristic = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
+        assert len(default) == len(heuristic)
+        assert len(default) == len(nx.max_weight_matching(G, maxcardinality=True))

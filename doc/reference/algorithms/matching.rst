@@ -12,3 +12,4 @@ Matching
    maximal_matching
    max_weight_matching
    min_weight_matching
+   max_cardinality_matching_gabow
