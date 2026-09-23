@@ -775,3 +775,339 @@ class TestMaxCardinalityMatchingGabow:
         heuristic = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
         assert len(default) == len(heuristic)
         assert len(default) == len(nx.max_weight_matching(G, maxcardinality=True))
+
+    # -- large / adversarial structural stress tests -----------------------
+
+    @staticmethod
+    def _nested_blossoms(depth):
+        """A chain of `depth` triangles, each attached to the previous by
+        sharing a single "tip" vertex, so a search that reaches the tip
+        must contract one blossom, then discover the next blossom sitting
+        right on top of it -- `depth` levels of nesting in one search.
+        """
+        G = nx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        tip = 0
+        next_id = 3
+        for _ in range(depth - 1):
+            a, b = next_id, next_id + 1
+            G.add_edges_from([(tip, a), (a, b), (b, tip)])
+            tip = a
+            next_id += 2
+        return G
+
+    @pytest.mark.parametrize("depth", [2, 3, 5, 8, 15, 30])
+    def test_deeply_nested_blossoms(self, depth):
+        G = self._nested_blossoms(depth)
+        self._check(G)
+
+    @pytest.mark.parametrize("k", [2, 3, 5, 10, 25])
+    def test_odd_cycles_sharing_a_common_vertex(self, k):
+        # windmill_graph(k, 3) is k triangles glued at one shared vertex --
+        # the "friendship graph" -- i.e. many odd cycles overlapping at a
+        # single vertex rather than being vertex-disjoint.
+        G = nx.windmill_graph(k, 3)
+        self._check(G)
+
+    @pytest.mark.parametrize("cycle_lengths", [(3,), (3, 5), (3, 5, 7, 9, 11), (5,) * 8])
+    def test_many_disjoint_odd_cycles(self, cycle_lengths):
+        G = nx.disjoint_union_all([nx.cycle_graph(k) for k in cycle_lengths])
+        expected = sum((k - 1) // 2 for k in cycle_lengths)
+        self._check(G, expected_size=expected)
+
+    def test_odd_cycles_sharing_single_edges(self):
+        # A chain of triangles each sharing one full edge (not just a
+        # vertex) with the next -- a different overlap pattern than either
+        # the disjoint or single-shared-vertex cases above.
+        G = nx.Graph()
+        for i in range(10):
+            G.add_edges_from([(i, i + 1), (i + 1, i + 2), (i + 2, i)])
+        self._check(G)
+
+    def test_isolated_vertices_mixed_with_dense_components(self):
+        G = nx.disjoint_union_all(
+            [nx.complete_graph(11), nx.complete_graph(8), nx.empty_graph(15)]
+        )
+        self._check(G, expected_size=(11 - 1) // 2 + 8 // 2)
+
+    def test_disconnected_many_components_varying_size_and_parity(self):
+        components = [
+            nx.complete_graph(1),
+            nx.complete_graph(2),
+            nx.complete_graph(3),
+            nx.cycle_graph(5),
+            nx.cycle_graph(7),
+            nx.complete_graph(10),
+            nx.path_graph(4),
+            nx.star_graph(9),
+            nx.empty_graph(6),
+            nx.windmill_graph(3, 3),
+        ]
+        G = nx.disjoint_union_all(components)
+        self._check(G)
+
+    def test_large_complete_graph_even(self):
+        G = nx.complete_graph(200)
+        self._check(G, expected_size=100)
+
+    def test_large_complete_graph_odd(self):
+        G = nx.complete_graph(201)
+        self._check(G, expected_size=100)
+
+    def test_large_complete_bipartite_graph(self):
+        G = nx.complete_bipartite_graph(50, 73)
+        self._check(G, expected_size=50)
+
+    def test_large_complete_bipartite_graph_balanced(self):
+        G = nx.complete_bipartite_graph(60, 60)
+        self._check(G, expected_size=60)
+
+    def test_star_graph_many_leaves(self):
+        G = nx.star_graph(500)
+        self._check(G, expected_size=1)
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_very_sparse_large_random_graphs(self, seed):
+        # p chosen so the expected average degree is well under 1: many
+        # isolated vertices and small components, few edges overall.
+        n = 400
+        G = nx.gnp_random_graph(n, 0.5 / n, seed=seed)
+        self._check(G)
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_very_dense_random_graphs(self, seed):
+        n = 70
+        G = nx.gnp_random_graph(n, 0.97, seed=seed + 500)
+        self._check(G, expected_size=n // 2)
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_large_sparse_random_graphs(self, seed):
+        n = 600
+        G = nx.gnm_random_graph(n, 3 * n, seed=seed + 2000)
+        self._check(G)
+
+    def test_large_random_regular_graph(self):
+        # A random 3-regular graph on an even number of vertices: sparse,
+        # highly symmetric, typically has a perfect matching, and exercises
+        # a very different degree distribution than gnp/gnm graphs.
+        G = nx.random_regular_graph(3, 300, seed=1)
+        self._check(G, expected_size=150)
+
+    def test_barbell_graph(self):
+        # Two dense complete-graph "bells" joined by a long thin path --
+        # mixes a dense blossom-heavy region with a long sparse stretch in
+        # a single connected graph.
+        G = nx.barbell_graph(9, 20)
+        ref = nx.max_weight_matching(G, maxcardinality=True)
+        got = self._check(G)
+        assert len(got) == len(ref)
+
+    # -- graphs reused from TestMaxWeightMatching's historically tricky ----
+    # -- weighted-blossom stress cases, stripped of weights ----------------
+    #
+    # These specific edge sets were distilled (in TestMaxWeightMatching,
+    # above) from bugs found while implementing Edmonds' *weighted*
+    # blossom algorithm -- S/T-blossom relabeling, nested-blossom expansion,
+    # etc. Those particular scenarios are specific to the weighted
+    # primal-dual method and have no direct analogue in Gabow's unweighted
+    # phase-based search, so reusing the exact expected weighted answers
+    # would not make sense here. But the underlying *graphs* still have
+    # unusually deep/nested blossom structure that historically stressed
+    # blossom-handling code, which makes them worth reusing as additional
+    # unweighted structural stress inputs, cross-validated the same way as
+    # every other test in this class.
+
+    @pytest.mark.parametrize(
+        "edges",
+        [
+            # test_nested_s_blossom
+            [(1, 2), (1, 3), (2, 3), (2, 4), (3, 5), (4, 5), (5, 6)],
+            # test_nested_s_blossom_relabel
+            [(1, 2), (1, 7), (2, 3), (3, 4), (3, 5), (4, 5), (5, 6), (6, 7), (7, 8)],
+            # test_nested_s_blossom_expand
+            [
+                (1, 2),
+                (1, 3),
+                (2, 3),
+                (2, 4),
+                (3, 5),
+                (4, 5),
+                (4, 6),
+                (5, 7),
+                (6, 7),
+                (7, 8),
+            ],
+            # test_s_blossom_relabel_expand
+            [(1, 2), (1, 5), (1, 6), (2, 3), (3, 4), (4, 5), (4, 8), (5, 7)],
+            # test_nested_s_blossom_relabel_expand
+            [(1, 2), (1, 3), (1, 8), (2, 3), (2, 4), (3, 5), (4, 5), (4, 7), (5, 6)],
+            # test_nasty_blossom1
+            [
+                (1, 2),
+                (1, 5),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (1, 6),
+                (3, 9),
+                (4, 8),
+                (5, 7),
+                (9, 10),
+            ],
+            # test_nasty_blossom2
+            [
+                (1, 2),
+                (1, 5),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (1, 6),
+                (3, 9),
+                (4, 8),
+                (5, 7),
+                (9, 10),
+            ],
+            # test_nasty_blossom_augmenting
+            [
+                (1, 2),
+                (1, 7),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (4, 6),
+                (5, 6),
+                (6, 7),
+                (1, 8),
+                (3, 11),
+                (5, 9),
+                (7, 10),
+                (11, 12),
+            ],
+            # test_nasty_blossom_expand_recursively
+            [
+                (1, 2),
+                (1, 3),
+                (2, 3),
+                (2, 4),
+                (3, 5),
+                (4, 5),
+                (1, 8),
+                (5, 7),
+                (7, 6),
+                (8, 10),
+                (4, 9),
+            ],
+        ],
+    )
+    def test_historically_tricky_weighted_blossom_graphs_unweighted(self, edges):
+        G = nx.Graph(edges)
+        self._check(G)
+
+    # -- determinism ---------------------------------------------------------
+
+    def test_deterministic_repeated_calls(self):
+        """Calling the function twice on the same graph must return the
+        exact same matching (not merely one of the same size) -- there is
+        no randomness anywhere in the algorithm, so this should always hold
+        for a fixed graph with a fixed node/edge iteration order.
+        """
+        G = nx.gnm_random_graph(60, 180, seed=3)
+        first = nx.max_cardinality_matching_gabow(G)
+        for _ in range(5):
+            again = nx.max_cardinality_matching_gabow(G)
+            assert again == first
+
+    def test_deterministic_across_fresh_reconstruction(self):
+        """Rebuilding an identical graph from scratch (same nodes and edges
+        added in the same order) must reproduce the exact same matching."""
+
+        def build():
+            G = nx.Graph()
+            G.add_nodes_from(range(10))
+            G.add_edges_from(
+                [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3), (6, 7), (8, 9)]
+            )
+            return G
+
+        first = nx.max_cardinality_matching_gabow(build())
+        second = nx.max_cardinality_matching_gabow(build())
+        assert first == second
+
+    def test_node_insertion_order_does_not_affect_matching_size(self):
+        """Mirrors TestMaximalMatching.test_ordering: the *size* of the
+        matching found must not depend on the order in which nodes were
+        added to the graph, even though the specific matching chosen (when
+        several maximum matchings exist) is free to vary with iteration
+        order.
+        """
+        edges = [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4)]
+        sizes = set()
+        for nodes in permutations(range(5)):
+            G = nx.Graph()
+            G.add_nodes_from(nodes)
+            G.add_edges_from(edges)
+            matching = nx.max_cardinality_matching_gabow(G)
+            assert nx.is_matching(G, matching)
+            sizes.add(len(matching))
+        assert sizes == {2}
+
+    # -- arbitrary hashable node labels ---------------------------------------
+
+    def test_tuple_node_labels(self):
+        G = nx.Graph()
+        G.add_edges_from(
+            [
+                ((0, 0), (0, 1)),
+                ((0, 1), (1, 1)),
+                ((1, 1), (1, 0)),
+                ((1, 0), (0, 0)),
+                ((1, 1), (2, 2)),
+            ]
+        )
+        self._check(G, expected_size=2)
+
+    def test_mixed_hashable_node_labels(self):
+        # Ints, strings, tuples, and frozensets mixed as node labels in one
+        # graph, including an odd cycle so a blossom actually contracts.
+        a, b, c = frozenset({1}), frozenset({2}), frozenset({3})
+        G = nx.Graph(
+            [
+                (0, "x"),
+                ("x", (1, 2)),
+                ((1, 2), 0),  # odd triangle: 0, "x", (1, 2)
+                ((1, 2), a),
+                (a, b),
+                (b, c),
+            ]
+        )
+        got = self._check(G)
+        assert all(isinstance(u, (int, str, tuple, frozenset)) for e in got for u in e)
+
+    # -- memory behavior on large graphs ---------------------------------------
+
+    def test_memory_scales_subquadratically(self):
+        """Coarse regression guard, not a strict bound: peak additional
+        memory while matching a sparse graph should grow roughly linearly
+        with graph size, not quadratically. Uses a generous tolerance since
+        tracemalloc's absolute numbers vary across Python versions/platforms
+        -- this is only meant to catch a gross regression such as an
+        accidentally-introduced O(n**2) data structure, not to pin down an
+        exact byte count.
+        """
+        import tracemalloc
+
+        def peak_bytes_for(n, seed):
+            G = nx.gnm_random_graph(n, 3 * n, seed=seed)
+            tracemalloc.start()
+            baseline, _ = tracemalloc.get_traced_memory()
+            nx.max_cardinality_matching_gabow(G)
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            return peak - baseline
+
+        small = peak_bytes_for(500, seed=1)
+        large = peak_bytes_for(4000, seed=2)  # 8x the nodes (and edges)
+
+        # Linear scaling predicts ~8x; quadratic would predict ~64x. Allow
+        # a generous margin above linear before treating it as a regression.
+        assert large < small * 8 * 4
