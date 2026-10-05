@@ -382,7 +382,9 @@ and everything outside the iteration loop costs **O(n+m)**, both confirmed
 directly from this static reading of the code. Combined with the
 separately-cited (not code-verified) O(√n) iteration count, this would give
 a total bound of **O(√n · (n+m) · α(n))** — the paper's own O(√n·m·α(n))
-with the same `(n+m)` correction applied throughout. This combination has
+with the same `(n+m)` correction applied throughout. As is standard in the
+literature, assuming no isolated vertices (m ≥ n/2) this equals
+O(√n · m · α(n)), the form used in the paper. This combination has
 not been demonstrated to hold on every input in this codebase: it is
 consistent with everything checked here, and with this project's own
 empirical measurements on random and several adversarial graph families,
