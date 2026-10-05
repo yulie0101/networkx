@@ -10,10 +10,10 @@ __all__ = [
     "is_matching",
     "is_maximal_matching",
     "is_perfect_matching",
-    "max_weight_matching",
-    "min_weight_matching",
-    "maximal_matching",
     "max_cardinality_matching_gabow",
+    "max_weight_matching",
+    "maximal_matching",
+    "min_weight_matching",
 ]
 
 
@@ -1153,7 +1153,9 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
 @not_implemented_for("multigraph")
 @not_implemented_for("directed")
 @nx._dispatchable
-def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
+def max_cardinality_matching_gabow(
+    G, use_heuristic_fallback=False, _counters=None, _skip_greedy_init=False
+):
     r"""Compute a maximum cardinality matching using Gabow's algorithm.
 
     A matching is a subset of edges in which no node occurs more than once.
@@ -1184,6 +1186,27 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
         never changes the *result* (see Notes) and defaults to off so the
         algorithm run is a direct, inspectable translation of Fig. 1 of the
         paper.
+
+    _skip_greedy_init : bool, optional (default=False)
+        Internal instrumentation hook, not part of the public API. If True,
+        skip the greedy warm-start below and begin from M = (empty set),
+        exactly as Fig. 1 specifies -- used by the complexity-verification
+        benchmark to measure the paper's bare algorithm on adversarial
+        inputs designed assuming an empty start; the greedy warm-start
+        (itself not in the paper) can trivially pre-solve some such inputs,
+        which would make a phase-count experiment about Fig. 1 vacuous.
+        Never used by default and never changes behavior unless passed.
+
+    _counters : dict, optional (default=None)
+        Internal instrumentation hook, not part of the public API (may
+        change or be removed without notice). If a dict is given, it is
+        populated in place with operation counts used to empirically check
+        this function's time complexity -- see the "Instrumentation" note
+        below. Passing it does not change the algorithm's logic, control
+        flow, or returned matching in any way; every counter update is an
+        isolated ``+= 1`` beside an existing statement, guarded by
+        ``if _counters is not None``, so the default (``None``) path pays
+        only that one extra check per site.
 
     Returns
     -------
@@ -1268,11 +1291,32 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
     bookkeeping per augmentation) but carries no additional correctness risk.
     Both settings always produce a matching of maximum cardinality.
 
+    **Instrumentation (``_counters``).** Following Mehlhorn & Nobahari's
+    terminology [2]_ -- "iteration" for the outer loop (Fig. 1's ``loop``,
+    O(sqrt(n)) of them) and "phase Delta" for the Delta-indexed steps inside
+    Phase 1 of one iteration -- ``_counters`` is populated with: ``iterations``
+    and ``delta_phases`` (total Delta-phases summed over all iterations);
+    ``edge_scans`` and ``search_steps`` (Phase 1's ``scan_edge`` calls and
+    Delta-bucket dequeues; Phase 2's per-edge DFS steps); ``blossom_
+    contraction_events`` and ``blossom_shrink_vertex_steps`` (how many
+    blossoms formed, and the per-vertex absorption work each one cost);
+    ``blossom_expansions`` (always 0 -- the simplified search of Fig. 2,
+    under assumption (A), never expands a blossom mid-search, since no
+    phase carries blossoms over from a previous one); ``union_find_find_
+    calls``/``union_find_find_hops``/``union_find_union_calls`` split by
+    structure (``uf_base_*`` for Sec. 3.1's S-bar partition, ``uf_dbase_*``
+    for the maximal-positive-blossom partition of Sec. 3.4, which Phase 2
+    continues to use -- see Notes); ``augmentations`` (Fig. 1's "augment M
+    by Q"); and ``per_iteration``, a list with one entry per iteration
+    holding that same set of keys scoped to just that iteration's work.
+
     References
     ----------
     .. [1] Harold N. Gabow, "The Weighted Matching Approach to Maximum
        Cardinality Matching", Fundamenta Informaticae 154 (2017), 109-130.
        https://doi.org/10.3233/FI-2017-1555
+    .. [2] Kurt Mehlhorn, Romina Nobahari, "Gabow's O(sqrt(n) m) Maximum
+       Cardinality Matching Algorithm, Revisited", arXiv:2603.22909.
     """
     n = G.number_of_nodes()
     if n == 0:
@@ -1292,17 +1336,45 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
     # optimum). This bound is only used by the optional heuristic fallback
     # below to estimate how many augmentations are likely still needed.
     size_of_M = 0
-    for v in G:
-        if v in mate:
-            continue
-        for u in adj[v]:
-            if u not in mate:
-                mate[v] = u
-                mate[u] = v
-                size_of_M += 1
-                break
+    if not _skip_greedy_init:
+        for v in G:
+            if v in mate:
+                continue
+            for u in adj[v]:
+                if u not in mate:
+                    mate[v] = u
+                    mate[u] = v
+                    size_of_M += 1
+                    break
     max_size_of_M = min(n // 2, 2 * size_of_M)
     number_of_iterations = 0
+
+    if _counters is not None:
+        _counters.update(
+            {
+                "iterations": 0,
+                "delta_phases": 0,
+                "edge_scans": 0,
+                "search_steps": 0,
+                "blossom_contraction_events": 0,
+                "blossom_shrink_vertex_steps": 0,
+                "blossom_expansions": 0,  # always 0 -- see docstring
+                "uf_base_find_calls": 0,
+                "uf_base_find_hops": 0,
+                "uf_base_union_calls": 0,
+                "uf_dbase_find_calls": 0,
+                "uf_dbase_find_hops": 0,
+                "uf_dbase_union_calls": 0,
+                "augmentations": 0,
+                "per_iteration": [],
+            }
+        )
+
+    def _snapshot():
+        return {k: v for k, v in _counters.items() if k != "per_iteration"}
+
+    def _diff(before, after):
+        return {k: after[k] - before[k] for k in before}
 
     class _UnionFind:
         """Union-find with path compression, supporting a forced
@@ -1317,30 +1389,41 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
         multiple phases.
         """
 
-        __slots__ = ("parent",)
+        __slots__ = ("_name", "parent")
 
-        def __init__(self, elements):
+        def __init__(self, elements, name="base"):
             self.parent = {v: v for v in elements}
+            self._name = name  # "base" or "dbase", for _counters keys only
 
         def find(self, x):
+            if _counters is not None:
+                _counters["uf_" + self._name + "_find_calls"] += 1
             parent = self.parent
             root = x
             while parent[root] != root:
                 root = parent[root]
+                if _counters is not None:
+                    _counters["uf_" + self._name + "_find_hops"] += 1
             while parent[x] != root:
                 parent[x], x = root, parent[x]
+                if _counters is not None:
+                    _counters["uf_" + self._name + "_find_hops"] += 1
             return root
 
         def union(self, x, y):
             rx, ry = self.find(x), self.find(y)
             if rx != ry:
                 self.parent[rx] = ry
+                if _counters is not None:
+                    _counters["uf_" + self._name + "_union_calls"] += 1
 
         def make_rep(self, x):
             r = self.find(x)
             if r != x:
                 self.parent[r] = x
                 self.parent[x] = x
+                if _counters is not None:
+                    _counters["uf_" + self._name + "_union_calls"] += 1
 
     class _BucketQueue:
         """Bucket priority queue indexed by dual-adjustment level Delta
@@ -1388,8 +1471,8 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
         # `base` is Edmonds' S-bar blossom partition, live during this
         # search; `dbase` accumulates the *maximal positive* blossoms
         # (Sec. 3.4) and is committed to only once per Delta level.
-        base = _UnionFind(G)
-        dbase = _UnionFind(G)
+        base = _UnionFind(G, name="base")
+        dbase = _UnionFind(G, name="dbase")
         path1 = {}
         path2 = {}
         strue = 0
@@ -1408,6 +1491,8 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
         def scan_edge(u, z):
             # Scan non-matching edge zu from z, which just became EVEN (or
             # was just absorbed into a blossom with base EVEN).
+            if _counters is not None:
+                _counters["edge_scans"] += 1
             if mate.get(u) == z or label[base.find(u)] == "ODD":
                 return
             p = d(z) + d(u)
@@ -1419,6 +1504,8 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
         def shrink_path(b, x, y, dunions):
             v = base.find(x)
             while v != b:
+                if _counters is not None:
+                    _counters["blossom_shrink_vertex_steps"] += 1
                 base.union(v, b)
                 dunions.append(v)
                 dunions.append(b)
@@ -1444,10 +1531,14 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
         found_sap = False
         dunions = []
         while 2 * Delta <= n:
+            if _counters is not None:
+                _counters["delta_phases"] += 1
             while True:
                 e = queue.pop(Delta)
                 if e is None:
                     break
+                if _counters is not None:
+                    _counters["search_steps"] += 1
                 x, y = e
                 if label[base.find(x)] != "EVEN":
                     x, y = y, x
@@ -1482,6 +1573,8 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
                             hy = base.find(parent[mate[hy]])
                             path2[hy] = strue
                     if path1.get(hy) == strue or path2.get(hx) == strue:
+                        if _counters is not None:
+                            _counters["blossom_contraction_events"] += 1
                         b = hy if path1.get(hy) == strue else hx
                         shrink_path(b, x, y, dunions)
                         shrink_path(b, y, x, dunions)
@@ -1652,6 +1745,12 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
                 if nxt is None:
                     stack.pop()
                     continue
+                if _counters is not None:
+                    # Phase 2's DFS has no separate generate/consume split
+                    # like Phase 1 -- examining an edge here is both the
+                    # "search step" and the "edge scan" in one.
+                    _counters["search_steps"] += 1
+                    _counters["edge_scans"] += 1
                 v, u = nxt
                 uh = rep[u]
                 if mateHG.get(vh) == uh:
@@ -1676,10 +1775,14 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
                     if bh != zh and even_timeHG.get(bh, -1) < even_timeHG.get(zh, -1):
                         # Blossom step (Fig. 4, line 3 "equivalent test":
                         # bh's blossom became outer strictly before zh's).
+                        if _counters is not None:
+                            _counters["blossom_contraction_events"] += 1
                         tmp = []
                         endpoints_of_M = []
                         cur = zh
                         while cur != bh:
+                            if _counters is not None:
+                                _counters["blossom_shrink_vertex_steps"] += 1
                             endpoints_of_M.append(cur)
                             cur = mateHG[cur]
                             endpoints_of_M.append(cur)
@@ -1697,19 +1800,28 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
             if found_h_edges is not None:
                 augment(found_h_edges)
                 augmentations += 1
+                if _counters is not None:
+                    _counters["augmentations"] += 1
 
         return augmentations
 
     while True:
         number_of_iterations += 1
+        if _counters is not None:
+            _counters["iterations"] += 1
+            iter_before = _snapshot()
         H = phase1()
         if H is None:
+            if _counters is not None:
+                _counters["per_iteration"].append(_diff(iter_before, _snapshot()))
             break
         stop_after_first = use_heuristic_fallback and (
             number_of_iterations > 0.5 * (max_size_of_M - size_of_M)
         )
         gained = phase2(H, stop_after_first)
         size_of_M += gained
+        if _counters is not None:
+            _counters["per_iteration"].append(_diff(iter_before, _snapshot()))
         if gained == 0:
             # Phase 1 found an sap, so Phase 2 must find at least one
             # augmenting path in H (Corollary 3.3); this is a defensive
