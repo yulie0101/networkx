@@ -1154,7 +1154,11 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
 @not_implemented_for("directed")
 @nx._dispatchable
 def max_cardinality_matching_gabow(
-    G, use_heuristic_fallback=False, _counters=None, _skip_greedy_init=False
+    G,
+    use_heuristic_fallback=False,
+    _counters=None,
+    _skip_greedy_init=False,
+    _union_by_size=True,
 ):
     r"""Compute a maximum cardinality matching using Gabow's algorithm.
 
@@ -1196,6 +1200,18 @@ def max_cardinality_matching_gabow(
         (itself not in the paper) can trivially pre-solve some such inputs,
         which would make a phase-count experiment about Fig. 1 vacuous.
         Never used by default and never changes behavior unless passed.
+
+    _union_by_size : bool, optional (default=True)
+        Internal instrumentation hook, not part of the public API. The
+        blossom union-find (see Notes) always uses path compression;
+        with this True (the default) it also uses union by size, giving
+        O(m*alpha(n)) per iteration like the reference C++ implementation's
+        LEDA-based union-find (union by rank + path compression). With
+        False, union always attaches the first tree under the second
+        regardless of size, matching this function's own original
+        path-compression-only implementation (O(m*log n) per iteration);
+        kept only so the two can be compared side by side. Never changes
+        the returned matching, only the internal cost of finding it.
 
     _counters : dict, optional (default=None)
         Internal instrumentation hook, not part of the public API (may
@@ -1377,25 +1393,48 @@ def max_cardinality_matching_gabow(
         return {k: after[k] - before[k] for k in before}
 
     class _UnionFind:
-        """Union-find with path compression, supporting a forced
+        """Union-find with path compression, plus (when ``_union_by_size``
+        is True, the default) union by size, supporting a forced logical
         representative after a union (``make_rep``) -- needed because a
         blossom's base vertex must remain the partition's representative,
-        which plain union-by-rank union-find does not guarantee. A fresh
-        instance is created for every Phase 1 call, scoped implicitly to
-        whichever vertices are touched; this costs O(n) to allocate, which
-        summed over the O(sqrt(n)) phases contributes O(n**1.5) additional
-        overhead -- within the O(sqrt(n) * m) bound whenever m = Omega(n),
-        i.e. for any graph whose matching structure actually requires
-        multiple phases.
+        which plain union-by-size does not by itself guarantee.
+
+        Union by size on its own picks an essentially *arbitrary* winner
+        between the two roots being merged (whichever tree happens to be
+        bigger), which is almost never the specific vertex (the blossom
+        base) the algorithm needs `find` to report. So the physical tree
+        shape (``parent``/``size``, balanced by size for O(log n) find) is
+        kept separate from the logical identity each physical root
+        currently stands for (``rep``, forced explicitly by ``make_rep``
+        after the unions that form a blossom); `find` always resolves to
+        the physical root first, then looks up its current logical rep.
+
+        With ``_union_by_size=False`` (kept only for side-by-side
+        comparison, see the function's docstring), ``union`` instead always
+        attaches the first tree under the second, exactly as the original
+        path-compression-only implementation did.
+
+        A fresh instance is created for every Phase 1 call, scoped
+        implicitly to whichever vertices are touched; this costs O(n) to
+        allocate, which summed over the O(sqrt(n)) phases contributes
+        O(n**1.5) additional overhead -- within the O(sqrt(n) * m) bound
+        whenever m = Omega(n), i.e. for any graph whose matching structure
+        actually requires multiple phases.
         """
 
-        __slots__ = ("_name", "parent")
+        __slots__ = ("_by_size", "_name", "parent", "rep", "size")
 
-        def __init__(self, elements, name="base"):
-            self.parent = {v: v for v in elements}
+        def __init__(self, elements, name="base", by_size=True):
+            elements = list(elements)
+            self.parent = dict.fromkeys(elements, None)
+            for v in elements:
+                self.parent[v] = v
+            self.rep = dict(self.parent)
+            self.size = dict.fromkeys(elements, 1) if by_size else None
+            self._by_size = by_size
             self._name = name  # "base" or "dbase", for _counters keys only
 
-        def find(self, x):
+        def _find_root(self, x):
             if _counters is not None:
                 _counters["uf_" + self._name + "_find_calls"] += 1
             parent = self.parent
@@ -1410,18 +1449,27 @@ def max_cardinality_matching_gabow(
                     _counters["uf_" + self._name + "_find_hops"] += 1
             return root
 
+        def find(self, x):
+            return self.rep[self._find_root(x)]
+
         def union(self, x, y):
-            rx, ry = self.find(x), self.find(y)
-            if rx != ry:
+            rx, ry = self._find_root(x), self._find_root(y)
+            if rx == ry:
+                return
+            if self._by_size:
+                if self.size[rx] < self.size[ry]:
+                    rx, ry = ry, rx
+                self.parent[ry] = rx
+                self.size[rx] += self.size[ry]
+            else:
                 self.parent[rx] = ry
-                if _counters is not None:
-                    _counters["uf_" + self._name + "_union_calls"] += 1
+            if _counters is not None:
+                _counters["uf_" + self._name + "_union_calls"] += 1
 
         def make_rep(self, x):
-            r = self.find(x)
-            if r != x:
-                self.parent[r] = x
-                self.parent[x] = x
+            root = self._find_root(x)
+            if self.rep[root] != x:
+                self.rep[root] = x
                 if _counters is not None:
                     _counters["uf_" + self._name + "_union_calls"] += 1
 
@@ -1471,8 +1519,8 @@ def max_cardinality_matching_gabow(
         # `base` is Edmonds' S-bar blossom partition, live during this
         # search; `dbase` accumulates the *maximal positive* blossoms
         # (Sec. 3.4) and is committed to only once per Delta level.
-        base = _UnionFind(G, name="base")
-        dbase = _UnionFind(G, name="dbase")
+        base = _UnionFind(G, name="base", by_size=_union_by_size)
+        dbase = _UnionFind(G, name="dbase", by_size=_union_by_size)
         path1 = {}
         path2 = {}
         strue = 0
