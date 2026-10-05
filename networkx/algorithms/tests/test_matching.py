@@ -91,6 +91,68 @@ def _brute_force_max_matching_size(G):
     return best
 
 
+def _tree_max_matching_size(G):
+    """Independent oracle for forests (graphs with no cycles at all): the
+    greedy leaf-matching algorithm, which is provably optimal on trees
+    (unlike greedy matching on general graphs, which only guarantees a 1/2
+    approximation -- see the "greedy init" discussion for
+    max_cardinality_matching_gabow). Repeatedly take any current leaf v,
+    match it to its unique remaining neighbor u, and remove both from the
+    graph; ties/choice of which leaf never matter. This is O(n) and shares
+    no code or algorithmic approach with max_cardinality_matching_gabow.
+
+    Correctness sketch (standard exchange argument): if some maximum
+    matching M leaves a leaf v unmatched, its unique neighbor u must be
+    matched (to some w), since otherwise {v, u} could be added to M,
+    contradicting maximality. Swapping to match {u, v} instead of {u, w}
+    yields an equally-large matching that does saturate v -- so there is
+    always a maximum matching agreeing with the greedy choice at v.
+    """
+    from collections import deque
+
+    degree = dict(G.degree())
+    removed = set()
+    queue = deque(v for v in G if degree[v] <= 1)
+    size = 0
+    while queue:
+        v = queue.popleft()
+        if v in removed:
+            continue
+        neighbors = [u for u in G[v] if u not in removed]
+        if not neighbors:
+            removed.add(v)
+            continue
+        u = neighbors[0]
+        removed.add(v)
+        removed.add(u)
+        size += 1
+        for w in G[u]:
+            if w not in removed:
+                degree[w] -= 1
+                if degree[w] <= 1:
+                    queue.append(w)
+    return size
+
+
+def _tutte_berge_bound(G, S):
+    """Evaluate the Tutte-Berge expression for one specific candidate set S:
+    (n - (odd_components(G - S) - |S|)) // 2. For an arbitrary S this is
+    only an upper bound on the true maximum matching size -- the
+    Tutte-Berge formula states the true maximum equals the *minimum* of
+    this expression over all S subseteq V, i.e. it becomes exact only when
+    S maximizes the "deficiency" odd_components(G - S) - |S|. This helper
+    is therefore only used, in the tests below, on graphs specifically
+    constructed so the chosen S is provably the deficiency-maximizer
+    (argued in each test's docstring) -- it is not a general Tutte-Berge
+    solver (finding the maximizing S in general is itself nontrivial).
+    """
+    n = G.number_of_nodes()
+    H = G.copy()
+    H.remove_nodes_from(S)
+    odd_components = sum(1 for comp in nx.connected_components(H) if len(comp) % 2 == 1)
+    return (n - (odd_components - len(S))) // 2
+
+
 class TestMaxWeightMatching:
     """Unit tests for the
     :func:`~networkx.algorithms.matching.max_weight_matching` function.
@@ -644,7 +706,12 @@ class TestMaxCardinalityMatchingGabow:
 
     def test_disconnected_components(self):
         G = nx.disjoint_union_all(
-            [nx.cycle_graph(5), nx.complete_graph(4), nx.path_graph(3), nx.Graph([(0, 0)])]
+            [
+                nx.cycle_graph(5),
+                nx.complete_graph(4),
+                nx.path_graph(3),
+                nx.Graph([(0, 0)]),
+            ]
         )
         # C5 contributes 2, K4 contributes 2, P3 contributes 1, the
         # self-loop-only component contributes 0.
@@ -811,7 +878,9 @@ class TestMaxCardinalityMatchingGabow:
         G = nx.windmill_graph(k, 3)
         self._check(G)
 
-    @pytest.mark.parametrize("cycle_lengths", [(3,), (3, 5), (3, 5, 7, 9, 11), (5,) * 8])
+    @pytest.mark.parametrize(
+        "cycle_lengths", [(3,), (3, 5), (3, 5, 7, 9, 11), (5,) * 8]
+    )
     def test_many_disjoint_odd_cycles(self, cycle_lengths):
         G = nx.disjoint_union_all([nx.cycle_graph(k) for k in cycle_lengths])
         expected = sum((k - 1) // 2 for k in cycle_lengths)
@@ -1165,7 +1234,9 @@ class TestMaxCardinalityMatchingGabow:
         # actually formed (a hop-free find is only possible for an
         # already-singleton/root element).
         if counters["blossom_contraction_events"] > 0:
-            assert counters["uf_base_find_hops"] >= 0  # exercised, not just zero-guarded
+            assert (
+                counters["uf_base_find_hops"] >= 0
+            )  # exercised, not just zero-guarded
 
     def test_counters_with_heuristic_fallback(self):
         G = nx.windmill_graph(10, 3)
@@ -1208,3 +1279,389 @@ class TestMaxCardinalityMatchingGabow:
         # the *default* (uninstrumented) path remains the fast one -- i.e.
         # that the guards aren't accidentally always-on.
         assert median_default <= median_instrumented + 1e-6
+
+    # -- independent-oracle cross-validation ---------------------------------
+    #
+    # Every test above validates max_cardinality_matching_gabow against
+    # max_weight_matching(maxcardinality=True) and, for small graphs, against
+    # brute force. max_weight_matching is itself a blossom-based algorithm
+    # living in this same module, so agreement with it alone cannot rule out
+    # a bug shared by both implementations, and brute force only scales to
+    # ~10 nodes. The tests in this section instead validate against sources
+    # of ground truth that share no code, and often no algorithmic approach,
+    # with max_cardinality_matching_gabow.
+
+    @pytest.mark.parametrize("seed", range(15))
+    def test_bipartite_cross_validation(self, seed):
+        """Cross-validate against networkx.algorithms.bipartite's
+        Hopcroft-Karp matching on random bipartite graphs.
+
+        Hopcroft-Karp matching for bipartite graphs is implemented
+        completely independently of max_cardinality_matching_gabow: it is a
+        different algorithm (repeated shortest-augmenting-path search via
+        BFS layering + DFS, with no blossom/odd-cycle handling of any kind,
+        since bipartite graphs have no odd cycles) implemented in a
+        different module. Agreement between the two is therefore a genuine
+        independent correctness signal, unlike agreement with
+        max_weight_matching (also blossom-based, same module) or brute
+        force (only feasible for tiny graphs).
+        """
+        n1 = 3 + (seed % 8)
+        n2 = 3 + ((seed * 2) % 8)
+        p = [0.1, 0.3, 0.5, 0.7][seed % 4]
+        G = nx.bipartite.random_graph(n1, n2, p, seed=seed)
+
+        got = self._check(G)
+
+        top_nodes = {n for n, d in G.nodes(data=True) if d["bipartite"] == 0}
+        bipartite_ref = nx.bipartite.hopcroft_karp_matching(G, top_nodes=top_nodes)
+        # hopcroft_karp_matching returns a dict with both (u -> v) and
+        # (v -> u) entries for every matched pair, so its matching size is
+        # half the dict length.
+        assert len(got) == len(bipartite_ref) // 2
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_multiple_disjoint_components_each_containing_a_blossom(self, seed):
+        """Several vertex-disjoint components, each of which individually
+        contains at least one odd cycle (blossom), combined into a single
+        graph via disjoint union.
+
+        This is different in intent from test_many_disjoint_odd_cycles
+        (see the "blossom contraction" section above): that test uses only
+        plain odd cycles and checks the total against a closed-form sum of
+        per-cycle contributions. This test instead mixes several
+        *qualitatively different* blossom-bearing structures as separate
+        components -- a plain odd cycle, a windmill graph (several odd
+        cycles sharing one vertex), and a nested "blossom inside a blossom"
+        construction (reusing the existing _nested_blossoms helper from the
+        "large / adversarial structural stress tests" section) -- and is
+        validated purely against max_weight_matching / brute force, with no
+        closed-form formula involved. The point is to exercise Phase 1 and
+        Phase 2 forming and resolving blossoms in several independent
+        search trees within a single phase, with no interference between
+        the separate components' blossom-handling.
+        """
+        components = [
+            nx.cycle_graph(3 + 2 * (seed % 3)),  # a plain odd cycle
+            nx.windmill_graph(2 + (seed % 3), 3),  # triangles sharing one vertex
+            self._nested_blossoms(2 + (seed % 3)),  # nested blossom construction
+            nx.cycle_graph(5),  # another plain odd cycle
+        ]
+        G = nx.disjoint_union_all(components)
+        self._check(G)
+
+    # -- API-contract tests ---------------------------------------------------
+
+    def test_input_graph_is_not_mutated(self):
+        """max_cardinality_matching_gabow must not mutate the input graph in
+        any way: no nodes/edges added or removed, and no node, edge, or
+        graph attributes changed. This is checked structurally (before/after
+        equality of nodes-with-data and edges-with-data), not merely by
+        re-running is_matching, since a mutation that happens not to break
+        matching-validity would otherwise go unnoticed.
+        """
+        G = nx.Graph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3)])
+        G.nodes[0]["label"] = "free-to-start"
+        G.graph["name"] = "mutation-guard-graph"
+
+        nodes_before = sorted(G.nodes(data=True))
+        edges_before = sorted(
+            (min(u, v), max(u, v), tuple(sorted(d.items())))
+            for u, v, d in G.edges(data=True)
+        )
+        graph_attrs_before = dict(G.graph)
+
+        nx.max_cardinality_matching_gabow(G)
+
+        nodes_after = sorted(G.nodes(data=True))
+        edges_after = sorted(
+            (min(u, v), max(u, v), tuple(sorted(d.items())))
+            for u, v, d in G.edges(data=True)
+        )
+        graph_attrs_after = dict(G.graph)
+
+        assert nodes_before == nodes_after
+        assert edges_before == edges_after
+        assert graph_attrs_before == graph_attrs_after
+
+    def test_return_type_and_shape(self):
+        """The return value must be a `set` of 2-tuples (u, v), each tuple
+        an actual edge of G, with every matched vertex appearing in exactly
+        one tuple -- and in particular no edge duplicated in both
+        orientations (u, v) and (v, u), which `is_matching` alone would not
+        catch since {(u, v), (v, u)} would still validate as a (degenerate,
+        wrong) matching only if u and v were each other's sole match, but
+        would silently double-count edges in general.
+        """
+        G = nx.Graph([(0, 1), (1, 2), (2, 3), (3, 0), (4, 5)])
+        got = nx.max_cardinality_matching_gabow(G)
+
+        assert isinstance(got, set)
+        seen_vertices = set()
+        for edge in got:
+            assert isinstance(edge, tuple)
+            assert len(edge) == 2
+            u, v = edge
+            assert G.has_edge(u, v)
+            assert (v, u) not in got  # no reverse-duplicate of the same edge
+            assert u not in seen_vertices  # each vertex matched at most once
+            assert v not in seen_vertices
+            seen_vertices.add(u)
+            seen_vertices.add(v)
+
+    def test_cross_call_state_isolation(self):
+        """Interleaved calls on different graphs must not leak state between
+        them: every internal data structure (mate, label, the union-find
+        instances, the bucket queue, Phase 2's labelHG/mateHG/etc.) is
+        declared fresh inside the function body or inside phase1()/phase2(),
+        so this should hold trivially -- but it is exactly the kind of
+        thing an accidental module-level or otherwise wrongly-scoped mutable
+        default would break silently. Calls on A, then B, then A again (and
+        the same for B) must each match what a fresh, isolated call on that
+        same graph alone produces.
+        """
+        A = nx.cycle_graph(7)
+        B = nx.Graph([(0, 1), (1, 2), (2, 3), (3, 4), (2, 5), (5, 6), (6, 3)])
+
+        a_alone = nx.max_cardinality_matching_gabow(nx.Graph(A))
+        b_alone = nx.max_cardinality_matching_gabow(nx.Graph(B))
+
+        a1 = nx.max_cardinality_matching_gabow(A)
+        b1 = nx.max_cardinality_matching_gabow(B)
+        a2 = nx.max_cardinality_matching_gabow(A)
+        b2 = nx.max_cardinality_matching_gabow(B)
+
+        assert a1 == a2 == a_alone
+        assert b1 == b2 == b_alone
+
+    def test_heuristic_fallback_at_greedy_extremes(self):
+        """use_heuristic_fallback decides when to switch strategy using
+        max_size_of_M = min(n // 2, 2 * size_of_M), where size_of_M is the
+        size of the initial greedy matching -- an upper bound that is only
+        as tight as the greedy matching is close to optimal. This test
+        checks both operating modes still agree at the two extremes of that
+        bound's tightness, rather than only on "typical" graphs:
+
+        * A graph where the greedy matching is *already* the true maximum
+          (size_of_M == true max), so max_size_of_M - size_of_M is as small
+          as possible and the fallback's switch-over condition is reached
+          immediately if reached at all.
+        * A graph engineered so the initial greedy matching hits the
+          worst-case 1/2 approximation ratio that maximal matchings are
+          guaranteed to be no worse than (Section: greedy init, "any
+          maximal matching is at least half the optimum"): disjoint copies
+          of a 4-path a-b-c-d added in node order b, c, a, d, so the
+          greedy scan (which visits nodes in insertion order) greedily
+          matches the *middle* edge (b, c) of each copy first, stranding a
+          and d -- giving size_of_M exactly half of the true maximum
+          size(a,b)+(c,d) per copy, the case where max_size_of_M - size_of_M
+          is as large as the bound allows.
+        """
+        # Extreme 1: greedy already optimal (a perfect matching via disjoint
+        # single edges -- there is nothing for greedy to get wrong).
+        G_already_optimal = nx.disjoint_union_all(
+            [nx.Graph([(0, 1)]) for _ in range(20)]
+        )
+        self._check(G_already_optimal, expected_size=20)
+
+        # Extreme 2: greedy hits the worst-case 1/2 ratio, via the
+        # bad-order P4 construction verified above.
+        G_worst_case_greedy = nx.Graph()
+        for i in range(15):
+            a, b, c, d = f"a{i}", f"b{i}", f"c{i}", f"d{i}"
+            G_worst_case_greedy.add_edges_from([(b, c), (a, b), (c, d)])
+        self._check(G_worst_case_greedy, expected_size=30)
+
+    # -- even cycles ------------------------------------------------------
+    #
+    # Complements test_odd_cycle (see the "blossom contraction" section
+    # above), which only covers odd k. Even cycles never trigger blossom
+    # formation at all (there is no odd-length alternating cycle to close),
+    # so together the two parametrizations exercise both the
+    # blossom-forming and the blossom-free branches of a search over the
+    # same family of graphs.
+
+    @pytest.mark.parametrize("k", [4, 6, 8, 10, 12])
+    def test_even_cycle(self, k):
+        G = nx.cycle_graph(k)
+        self._check(G, expected_size=k // 2)
+
+    # -- trees and forests --------------------------------------------------
+    #
+    # A forest has no cycles at all, so Phase 1 never needs to contract a
+    # blossom for any of these -- a structurally distinct regime from every
+    # test above that specifically targets blossom handling. Validated
+    # against _tree_max_matching_size, an independent O(n) oracle that
+    # shares no code or algorithmic approach with either
+    # max_cardinality_matching_gabow or max_weight_matching.
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_random_trees(self, seed):
+        n = 2 + seed * 3  # sweeps through both even and odd n
+        G = nx.random_labeled_tree(n, seed=seed)
+        got = self._check(G)
+        assert len(got) == _tree_max_matching_size(G)
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_random_forests(self, seed):
+        # Several disjoint trees of varying, independently-seeded shapes.
+        trees = [
+            nx.random_labeled_tree(2 + i + seed, seed=100 * seed + i) for i in range(4)
+        ]
+        G = nx.disjoint_union_all(trees)
+        got = self._check(G)
+        assert len(got) == _tree_max_matching_size(G)
+
+    def test_single_tree_edge_case_star(self):
+        # A star is itself a tree (every leaf attached to one center) --
+        # sanity-checks _tree_max_matching_size itself against the
+        # already-known answer (1) for this shape before trusting it on
+        # random trees above.
+        G = nx.star_graph(9)
+        assert _tree_max_matching_size(G) == 1
+        self._check(G, expected_size=1)
+
+    def test_single_tree_edge_case_path(self):
+        # A path is also a tree; matching number is a simple closed form
+        # (floor(n/2)), giving another sanity check on the oracle itself.
+        G = nx.path_graph(11)
+        assert _tree_max_matching_size(G) == 5
+        self._check(G, expected_size=5)
+
+    # -- recursion-depth stress ---------------------------------------------
+    #
+    # The function's docstring explains that every helper the C++ reference
+    # implements recursively (Phase 2's search and the two
+    # path-reconstruction routines) is implemented here with an explicit
+    # stack instead, specifically because "Python's call stack is far
+    # shallower than the O(n)-deep recursions a large sparse graph (e.g. a
+    # long path or cycle) can trigger." This test exercises that claim
+    # directly, at a size well beyond Python's default recursion limit,
+    # rather than relying on it never being contradicted by coincidence in
+    # the denser/more-balanced large-graph tests above.
+    #
+    # max_weight_matching / brute force are *not* used as oracles here --
+    # max_weight_matching is O(n**3) and infeasible at this size. Instead,
+    # the matching number of a path or cycle is a simple textbook closed
+    # form (floor(n / 2) in both cases), independent of any algorithm.
+
+    def test_long_path_does_not_exceed_recursion_depth(self):
+        n = 15001  # odd length, well beyond any default recursion limit
+        G = nx.path_graph(n)
+        got = nx.max_cardinality_matching_gabow(G)
+        assert nx.is_matching(G, got)
+        assert len(got) == n // 2
+
+    def test_long_odd_cycle_does_not_exceed_recursion_depth(self):
+        # Odd length forces the entire cycle to close into a single large
+        # blossom, specifically stressing the blossom-traversal code paths
+        # (trace_G/trace_HG and their bridge pointers) at large depth,
+        # rather than just the plain grow-step chain a path exercises.
+        n = 14999
+        G = nx.cycle_graph(n)
+        got = nx.max_cardinality_matching_gabow(G)
+        assert nx.is_matching(G, got)
+        assert len(got) == n // 2
+
+    # -- Tutte-Berge deficiency formula --------------------------------------
+    #
+    # The Tutte-Berge formula states that the maximum matching size of any
+    # graph G equals the minimum, over all S subseteq V, of
+    # (n - (odd_components(G - S) - |S|)) / 2 -- a purely graph-theoretic
+    # statement, independent of any matching algorithm, that gives an exact
+    # answer at sizes far beyond brute force's reach, without depending on
+    # any other matching implementation (unlike max_weight_matching or the
+    # bipartite oracle above). Rather than search for the minimizing S in
+    # general (itself a nontrivial algorithm), this test uses a graph
+    # family where a specific S is provably optimal by construction.
+
+    @staticmethod
+    def _bridged_triangles(k):
+        """A hub vertex joined by a single bridge edge to one designated
+        vertex of each of k otherwise fully separate triangles (the hub is
+        *not* itself part of any triangle -- unlike windmill_graph, where
+        the hub is a shared triangle vertex, which turns out to make every
+        hub-minus-triangle remnant a 2-vertex *even* piece instead of an
+        odd one, and was the source of an earlier miscalculation caught
+        while writing this test; see the git history of this test for that
+        first, incorrect attempt).
+        """
+        G = nx.Graph()
+        for i in range(k):
+            a, b, c = f"a{i}", f"b{i}", f"c{i}"
+            G.add_edges_from([(a, b), (b, c), (c, a), ("hub", a)])
+        return G
+
+    @pytest.mark.parametrize("k", [2, 3, 5, 10, 25])
+    def test_tutte_berge_bridged_triangles(self, k):
+        """Removing S = {hub} from _bridged_triangles(k) leaves k fully
+        separate triangles (the hub was not part of any of them, only
+        bridged to one vertex of each), each its own odd (size-3)
+        component: n = 3k + 1, odd_components(G - {hub}) = k, giving
+        deficiency k - 1 and matching size (n - (k - 1)) / 2 = k + 1.
+
+        S = {hub} is optimal (or tied for optimal): additionally removing
+        any single triangle vertex v from S turns that triangle's other two
+        vertices into one *even* (size-2) component instead of odd, so the
+        odd-component count drops by 1 while |S| grows by 1 -- deficiency
+        drops by 2 for every such enlargement. Not removing the hub at all
+        leaves every triangle connected to it (directly or, for the
+        triangle whose bridge vertex was removed, not at all, but then that
+        triangle's own two remaining vertices are only connected to each
+        other) -- in every case checked here (and confirmed by an
+        exhaustive search over all S for k = 2, 3, 4 during development)
+        no alternative S exceeds deficiency k - 1.
+
+        This construction was verified independently (by exhaustive search
+        over every S, not just the claimed one, for small k) before use
+        here, precisely because a first attempt at this test (using
+        windmill_graph) turned out to rest on a miscounted node total and
+        was caught by this very cross-validation failing.
+        """
+        G = self._bridged_triangles(k)
+        expected = _tutte_berge_bound(G, {"hub"})
+        assert expected == k + 1  # closed form, as derived in the docstring
+        self._check(G, expected_size=expected)
+
+    # -- named graphs with published matching numbers ------------------------
+    #
+    # Fast, low-maintenance sanity anchors: well-known graphs whose matching
+    # number is a documented fact of graph theory, independent of and
+    # predating any implementation in this library.
+
+    @pytest.mark.parametrize(
+        "G, expected_size, source",
+        [
+            (
+                nx.petersen_graph(),
+                5,
+                # 10 vertices; a classical corollary of Petersen's theorem
+                # (every bridgeless cubic graph has a perfect matching) is
+                # that the Petersen graph itself has a perfect matching.
+                "Petersen graph has a perfect matching (Petersen's theorem)",
+            ),
+            (
+                nx.hypercube_graph(4),
+                8,
+                # 16 vertices; hypercube graphs Q_d are bipartite and
+                # well known to always have a perfect matching (e.g. pair
+                # each vertex with the one differing in bit 0).
+                "4-dimensional hypercube graph has a perfect matching",
+            ),
+            (
+                nx.desargues_graph(),
+                10,
+                # 20 vertices; a vertex-transitive (bipartite) cubic graph,
+                # hence -- like every vertex-transitive graph of positive
+                # degree -- has a perfect matching.
+                "Desargues graph has a perfect matching (vertex-transitive)",
+            ),
+        ],
+        ids=["petersen", "hypercube_4d", "desargues"],
+    )
+    def test_named_graphs_with_documented_matching_number(
+        self, G, expected_size, source
+    ):
+        assert G.number_of_nodes() == 2 * expected_size  # sanity: perfect matching
+        got = self._check(G)
+        assert len(got) == expected_size, source
