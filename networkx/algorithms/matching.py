@@ -1683,7 +1683,7 @@ def max_cardinality_matching_gabow(G, use_heuristic_fallback=False):
                             endpoints_of_M.append(cur)
                             cur = mateHG[cur]
                             endpoints_of_M.append(cur)
-                            tmp.insert(0, cur)
+                            tmp.append(cur)
                             pv, pu = parentHG[cur]
                             other = pu if rep[pv] == cur else pv
                             cur = dbase.find(rep[other])

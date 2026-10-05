@@ -1,0 +1,3352 @@
+[
+  {
+    "id": "existing_hand_verified_square",
+    "title": "test_hand_verified_square (C4)",
+    "category": "existing",
+    "n_nodes": 4,
+    "n_edges": 4,
+    "matching_size": 2,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_hand_verified_square.png"
+  },
+  {
+    "id": "existing_hand_verified_star",
+    "title": "test_hand_verified_star (star(5))",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 5,
+    "matching_size": 1,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "5",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_hand_verified_star.png"
+  },
+  {
+    "id": "existing_hand_verified_path",
+    "title": "test_hand_verified_path (P6)",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 5,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_hand_verified_path.png"
+  },
+  {
+    "id": "existing_two_triangles_sharing_a_bridge",
+    "title": "test_hand_verified_two_triangles_sharing_a_bridge",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 7,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_two_triangles_sharing_a_bridge.png"
+  },
+  {
+    "id": "existing_odd_cycle_k5",
+    "title": "test_odd_cycle[k=5]",
+    "category": "existing",
+    "n_nodes": 5,
+    "n_edges": 5,
+    "matching_size": 2,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_odd_cycle_k5.png"
+  },
+  {
+    "id": "existing_odd_cycle_with_pendant",
+    "title": "test_odd_cycle_with_pendant",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 6,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "pendant"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "pendant",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_odd_cycle_with_pendant.png"
+  },
+  {
+    "id": "existing_chained_blossoms",
+    "title": "test_chained_blossoms",
+    "category": "existing",
+    "n_nodes": 13,
+    "n_edges": 18,
+    "matching_size": 6,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "8",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "10",
+        "v": "11",
+        "matched": true
+      },
+      {
+        "u": "10",
+        "v": "12",
+        "matched": false
+      },
+      {
+        "u": "11",
+        "v": "12",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_chained_blossoms.png"
+  },
+  {
+    "id": "existing_nested_style_blossom",
+    "title": "test_nested_style_blossom",
+    "category": "existing",
+    "n_nodes": 7,
+    "n_edges": 8,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_nested_style_blossom.png"
+  },
+  {
+    "id": "existing_windmill_k2",
+    "title": "test_odd_cycles_sharing_a_common_vertex[k=2]",
+    "category": "existing",
+    "n_nodes": 5,
+    "n_edges": 6,
+    "matching_size": 2,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_windmill_k2.png"
+  },
+  {
+    "id": "existing_many_disjoint_odd_cycles",
+    "title": "test_many_disjoint_odd_cycles[(3, 5)]",
+    "category": "existing",
+    "n_nodes": 8,
+    "n_edges": 8,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_many_disjoint_odd_cycles.png"
+  },
+  {
+    "id": "existing_odd_cycles_sharing_single_edges_small",
+    "title": "test_odd_cycles_sharing_single_edges (reduced from 10 to 5 triangles for legibility)",
+    "category": "existing",
+    "n_nodes": 7,
+    "n_edges": 11,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_odd_cycles_sharing_single_edges_small.png"
+  },
+  {
+    "id": "existing_deeply_nested_blossoms_depth3",
+    "title": "test_deeply_nested_blossoms[depth=3] (smallest legible depth; the test itself goes up to depth=30)",
+    "category": "existing",
+    "n_nodes": 7,
+    "n_edges": 9,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_deeply_nested_blossoms_depth3.png"
+  },
+  {
+    "id": "existing_historical_nested_s_blossom",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nested_s_blossom]",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 7,
+    "matching_size": 3,
+    "nodes": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nested_s_blossom.png"
+  },
+  {
+    "id": "existing_historical_nested_s_blossom_relabel",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nested_s_blossom_relabel]",
+    "category": "existing",
+    "n_nodes": 8,
+    "n_edges": 9,
+    "matching_size": 4,
+    "nodes": [
+      "1",
+      "2",
+      "7",
+      "3",
+      "4",
+      "5",
+      "6",
+      "8"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nested_s_blossom_relabel.png"
+  },
+  {
+    "id": "existing_historical_nested_s_blossom_expand",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nested_s_blossom_expand]",
+    "category": "existing",
+    "n_nodes": 8,
+    "n_edges": 10,
+    "matching_size": 4,
+    "nodes": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nested_s_blossom_expand.png"
+  },
+  {
+    "id": "existing_historical_s_blossom_relabel_expand",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[s_blossom_relabel_expand]",
+    "category": "existing",
+    "n_nodes": 8,
+    "n_edges": 8,
+    "matching_size": 4,
+    "nodes": [
+      "1",
+      "2",
+      "5",
+      "6",
+      "3",
+      "4",
+      "8",
+      "7"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "8",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_s_blossom_relabel_expand.png"
+  },
+  {
+    "id": "existing_historical_nested_s_blossom_relabel_expand",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nested_s_blossom_relabel_expand]",
+    "category": "existing",
+    "n_nodes": 8,
+    "n_edges": 9,
+    "matching_size": 4,
+    "nodes": [
+      "1",
+      "2",
+      "3",
+      "8",
+      "4",
+      "5",
+      "7",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nested_s_blossom_relabel_expand.png"
+  },
+  {
+    "id": "existing_historical_nasty_blossom1",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nasty_blossom1]",
+    "category": "existing",
+    "n_nodes": 10,
+    "n_edges": 10,
+    "matching_size": 5,
+    "nodes": [
+      "1",
+      "2",
+      "5",
+      "3",
+      "4",
+      "6",
+      "9",
+      "8",
+      "7",
+      "10"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nasty_blossom1.png"
+  },
+  {
+    "id": "existing_historical_nasty_blossom2",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nasty_blossom2]",
+    "category": "existing",
+    "n_nodes": 10,
+    "n_edges": 10,
+    "matching_size": 5,
+    "nodes": [
+      "1",
+      "2",
+      "5",
+      "3",
+      "4",
+      "6",
+      "9",
+      "8",
+      "7",
+      "10"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nasty_blossom2.png"
+  },
+  {
+    "id": "existing_historical_nasty_blossom_augmenting",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nasty_blossom_augmenting]",
+    "category": "existing",
+    "n_nodes": 12,
+    "n_edges": 13,
+    "matching_size": 6,
+    "nodes": [
+      "1",
+      "2",
+      "7",
+      "3",
+      "4",
+      "5",
+      "6",
+      "8",
+      "11",
+      "9",
+      "10",
+      "12"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "7",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "10",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "11",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "11",
+        "v": "12",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nasty_blossom_augmenting.png"
+  },
+  {
+    "id": "existing_historical_nasty_blossom_expand_recursively",
+    "title": "test_historically_tricky_weighted_blossom_graphs_unweighted[nasty_blossom_expand_recursively]",
+    "category": "existing",
+    "n_nodes": 10,
+    "n_edges": 11,
+    "matching_size": 5,
+    "nodes": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "8",
+      "7",
+      "6",
+      "10",
+      "9"
+    ],
+    "edges": [
+      {
+        "u": "1",
+        "v": "2",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "10",
+        "matched": true
+      },
+      {
+        "u": "7",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_historical_nasty_blossom_expand_recursively.png"
+  },
+  {
+    "id": "existing_tuple_node_labels",
+    "title": "test_tuple_node_labels",
+    "category": "existing",
+    "n_nodes": 5,
+    "n_edges": 5,
+    "matching_size": 2,
+    "nodes": [
+      "(0, 0)",
+      "(0, 1)",
+      "(1, 1)",
+      "(1, 0)",
+      "(2, 2)"
+    ],
+    "edges": [
+      {
+        "u": "(0, 0)",
+        "v": "(0, 1)",
+        "matched": true
+      },
+      {
+        "u": "(0, 0)",
+        "v": "(1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(0, 1)",
+        "v": "(1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 1)",
+        "v": "(1, 0)",
+        "matched": true
+      },
+      {
+        "u": "(1, 1)",
+        "v": "(2, 2)",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_tuple_node_labels.png"
+  },
+  {
+    "id": "existing_mixed_hashable_node_labels",
+    "title": "test_mixed_hashable_node_labels",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 6,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "x",
+      "(1, 2)",
+      "frozenset({1})",
+      "frozenset({2})",
+      "frozenset({3})"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "x",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "(1, 2)",
+        "matched": false
+      },
+      {
+        "u": "x",
+        "v": "(1, 2)",
+        "matched": false
+      },
+      {
+        "u": "(1, 2)",
+        "v": "frozenset({1})",
+        "matched": true
+      },
+      {
+        "u": "frozenset({1})",
+        "v": "frozenset({2})",
+        "matched": false
+      },
+      {
+        "u": "frozenset({2})",
+        "v": "frozenset({3})",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_mixed_hashable_node_labels.png"
+  },
+  {
+    "id": "existing_barbell_reduced",
+    "title": "test_barbell_graph (reduced from barbell_graph(9, 20) to barbell_graph(4, 3) for legibility)",
+    "category": "existing",
+    "n_nodes": 11,
+    "n_edges": 16,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "8",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_barbell_reduced.png"
+  },
+  {
+    "id": "existing_disconnected_components",
+    "title": "test_disconnected_components",
+    "category": "existing",
+    "n_nodes": 13,
+    "n_edges": 14,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": true
+      },
+      {
+        "u": "10",
+        "v": "11",
+        "matched": false
+      }
+    ],
+    "self_loops": [
+      "12"
+    ],
+    "png": "existing_disconnected_components.png"
+  },
+  {
+    "id": "existing_isolated_vertices_mixed_in",
+    "title": "test_isolated_vertices_mixed_in",
+    "category": "existing",
+    "n_nodes": 6,
+    "n_edges": 3,
+    "matching_size": 2,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "isolated_a",
+      "isolated_b"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_isolated_vertices_mixed_in.png"
+  },
+  {
+    "id": "existing_random_small_graphs_seed3",
+    "title": "test_random_small_graphs[seed=3]",
+    "category": "existing",
+    "n_nodes": 4,
+    "n_edges": 6,
+    "matching_size": 2,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_random_small_graphs_seed3.png"
+  },
+  {
+    "id": "existing_random_larger_graphs_seed0",
+    "title": "test_random_larger_graphs[seed=0]",
+    "category": "existing",
+    "n_nodes": 20,
+    "n_edges": 9,
+    "matching_size": 6,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "11",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "13",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "18",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "9",
+        "v": "12",
+        "matched": false
+      },
+      {
+        "u": "10",
+        "v": "16",
+        "matched": true
+      },
+      {
+        "u": "11",
+        "v": "14",
+        "matched": false
+      },
+      {
+        "u": "15",
+        "v": "19",
+        "matched": true
+      },
+      {
+        "u": "16",
+        "v": "18",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "existing_random_larger_graphs_seed0.png"
+  },
+  {
+    "id": "existing_random_graphs_with_self_loops",
+    "title": "test_random_graphs_with_self_loops (first of its 10 internal seeds)",
+    "category": "existing",
+    "n_nodes": 12,
+    "n_edges": 13,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": false
+      }
+    ],
+    "self_loops": [
+      "0"
+    ],
+    "png": "existing_random_graphs_with_self_loops.png"
+  },
+  {
+    "id": "new_bipartite_cross_validation",
+    "title": "test_bipartite_cross_validation[seed=2]",
+    "category": "new",
+    "n_nodes": 12,
+    "n_edges": 15,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "10",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "11",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "7",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_bipartite_cross_validation.png"
+  },
+  {
+    "id": "new_multiple_disjoint_blossom_components",
+    "title": "test_multiple_disjoint_components_each_containing_a_blossom[seed=0]",
+    "category": "new",
+    "n_nodes": 18,
+    "n_edges": 20,
+    "matching_size": 7,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "8",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "8",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "11",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "12",
+        "matched": false
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "11",
+        "v": "12",
+        "matched": true
+      },
+      {
+        "u": "13",
+        "v": "14",
+        "matched": true
+      },
+      {
+        "u": "13",
+        "v": "17",
+        "matched": false
+      },
+      {
+        "u": "14",
+        "v": "15",
+        "matched": false
+      },
+      {
+        "u": "15",
+        "v": "16",
+        "matched": true
+      },
+      {
+        "u": "16",
+        "v": "17",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_multiple_disjoint_blossom_components.png"
+  },
+  {
+    "id": "new_input_graph_is_not_mutated",
+    "title": "test_input_graph_is_not_mutated",
+    "category": "new",
+    "n_nodes": 6,
+    "n_edges": 7,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_input_graph_is_not_mutated.png"
+  },
+  {
+    "id": "new_return_type_and_shape",
+    "title": "test_return_type_and_shape",
+    "category": "new",
+    "n_nodes": 6,
+    "n_edges": 5,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_return_type_and_shape.png"
+  },
+  {
+    "id": "new_cross_call_isolation_A",
+    "title": "test_cross_call_state_isolation -- graph A",
+    "category": "new",
+    "n_nodes": 7,
+    "n_edges": 7,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_cross_call_isolation_A.png"
+  },
+  {
+    "id": "new_cross_call_isolation_B",
+    "title": "test_cross_call_state_isolation -- graph B",
+    "category": "new",
+    "n_nodes": 7,
+    "n_edges": 7,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_cross_call_isolation_B.png"
+  },
+  {
+    "id": "new_heuristic_fallback_extreme_already_optimal",
+    "title": "test_heuristic_fallback_at_greedy_extremes -- greedy-already-optimal extreme (reduced from 20 to 4 disjoint edges for legibility)",
+    "category": "new",
+    "n_nodes": 8,
+    "n_edges": 4,
+    "matching_size": 4,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_heuristic_fallback_extreme_already_optimal.png"
+  },
+  {
+    "id": "new_heuristic_fallback_extreme_worst_case",
+    "title": "test_heuristic_fallback_at_greedy_extremes -- worst-case-greedy-ratio extreme (reduced from 15 to 4 copies for legibility)",
+    "category": "new",
+    "n_nodes": 16,
+    "n_edges": 12,
+    "matching_size": 8,
+    "nodes": [
+      "b0",
+      "c0",
+      "a0",
+      "d0",
+      "b1",
+      "c1",
+      "a1",
+      "d1",
+      "b2",
+      "c2",
+      "a2",
+      "d2",
+      "b3",
+      "c3",
+      "a3",
+      "d3"
+    ],
+    "edges": [
+      {
+        "u": "b0",
+        "v": "c0",
+        "matched": false
+      },
+      {
+        "u": "b0",
+        "v": "a0",
+        "matched": true
+      },
+      {
+        "u": "c0",
+        "v": "d0",
+        "matched": true
+      },
+      {
+        "u": "b1",
+        "v": "c1",
+        "matched": false
+      },
+      {
+        "u": "b1",
+        "v": "a1",
+        "matched": true
+      },
+      {
+        "u": "c1",
+        "v": "d1",
+        "matched": true
+      },
+      {
+        "u": "b2",
+        "v": "c2",
+        "matched": false
+      },
+      {
+        "u": "b2",
+        "v": "a2",
+        "matched": true
+      },
+      {
+        "u": "c2",
+        "v": "d2",
+        "matched": true
+      },
+      {
+        "u": "b3",
+        "v": "c3",
+        "matched": false
+      },
+      {
+        "u": "b3",
+        "v": "a3",
+        "matched": true
+      },
+      {
+        "u": "c3",
+        "v": "d3",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_heuristic_fallback_extreme_worst_case.png"
+  },
+  {
+    "id": "new_even_cycle_k6",
+    "title": "test_even_cycle[k=6]",
+    "category": "new",
+    "n_nodes": 6,
+    "n_edges": 6,
+    "matching_size": 3,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_even_cycle_k6.png"
+  },
+  {
+    "id": "new_random_trees_seed3",
+    "title": "test_random_trees[seed=3]",
+    "category": "new",
+    "n_nodes": 11,
+    "n_edges": 10,
+    "matching_size": 4,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "7",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_random_trees_seed3.png"
+  },
+  {
+    "id": "new_random_forests_seed0",
+    "title": "test_random_forests[seed=0]",
+    "category": "new",
+    "n_nodes": 14,
+    "n_edges": 10,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": true
+      },
+      {
+        "u": "10",
+        "v": "13",
+        "matched": false
+      },
+      {
+        "u": "11",
+        "v": "13",
+        "matched": true
+      },
+      {
+        "u": "12",
+        "v": "13",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_random_forests_seed0.png"
+  },
+  {
+    "id": "new_single_tree_star",
+    "title": "test_single_tree_edge_case_star",
+    "category": "new",
+    "n_nodes": 10,
+    "n_edges": 9,
+    "matching_size": 1,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "3",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "9",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_single_tree_star.png"
+  },
+  {
+    "id": "new_single_tree_path",
+    "title": "test_single_tree_edge_case_path",
+    "category": "new",
+    "n_nodes": 11,
+    "n_edges": 10,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_single_tree_path.png"
+  },
+  {
+    "id": "new_tutte_berge_bridged_triangles_k2",
+    "title": "test_tutte_berge_bridged_triangles[k=2] (smallest k; the test itself goes up to k=25)",
+    "category": "new",
+    "n_nodes": 7,
+    "n_edges": 8,
+    "matching_size": 3,
+    "nodes": [
+      "a0",
+      "b0",
+      "c0",
+      "hub",
+      "a1",
+      "b1",
+      "c1"
+    ],
+    "edges": [
+      {
+        "u": "a0",
+        "v": "b0",
+        "matched": true
+      },
+      {
+        "u": "a0",
+        "v": "c0",
+        "matched": false
+      },
+      {
+        "u": "a0",
+        "v": "hub",
+        "matched": false
+      },
+      {
+        "u": "b0",
+        "v": "c0",
+        "matched": false
+      },
+      {
+        "u": "hub",
+        "v": "a1",
+        "matched": true
+      },
+      {
+        "u": "a1",
+        "v": "b1",
+        "matched": false
+      },
+      {
+        "u": "a1",
+        "v": "c1",
+        "matched": false
+      },
+      {
+        "u": "b1",
+        "v": "c1",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_tutte_berge_bridged_triangles_k2.png"
+  },
+  {
+    "id": "new_named_petersen",
+    "title": "test_named_graphs_with_documented_matching_number[petersen]",
+    "category": "new",
+    "n_nodes": 10,
+    "n_edges": 15,
+    "matching_size": 5,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "7",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "5",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "8",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "9",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_named_petersen.png"
+  },
+  {
+    "id": "new_named_hypercube_4d",
+    "title": "test_named_graphs_with_documented_matching_number[hypercube_4d]",
+    "category": "new",
+    "n_nodes": 16,
+    "n_edges": 32,
+    "matching_size": 8,
+    "nodes": [
+      "(0, 0, 0, 0)",
+      "(0, 0, 0, 1)",
+      "(0, 0, 1, 0)",
+      "(0, 0, 1, 1)",
+      "(0, 1, 0, 0)",
+      "(0, 1, 0, 1)",
+      "(0, 1, 1, 0)",
+      "(0, 1, 1, 1)",
+      "(1, 0, 0, 0)",
+      "(1, 0, 0, 1)",
+      "(1, 0, 1, 0)",
+      "(1, 0, 1, 1)",
+      "(1, 1, 0, 0)",
+      "(1, 1, 0, 1)",
+      "(1, 1, 1, 0)",
+      "(1, 1, 1, 1)"
+    ],
+    "edges": [
+      {
+        "u": "(0, 0, 0, 0)",
+        "v": "(1, 0, 0, 0)",
+        "matched": true
+      },
+      {
+        "u": "(0, 0, 0, 0)",
+        "v": "(0, 1, 0, 0)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 0, 0)",
+        "v": "(0, 0, 1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 0, 0)",
+        "v": "(0, 0, 0, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 0, 1)",
+        "v": "(1, 0, 0, 1)",
+        "matched": true
+      },
+      {
+        "u": "(0, 0, 0, 1)",
+        "v": "(0, 1, 0, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 0, 1)",
+        "v": "(0, 0, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 1, 0)",
+        "v": "(1, 0, 1, 0)",
+        "matched": true
+      },
+      {
+        "u": "(0, 0, 1, 0)",
+        "v": "(0, 1, 1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 1, 0)",
+        "v": "(0, 0, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 0, 1, 1)",
+        "v": "(1, 0, 1, 1)",
+        "matched": true
+      },
+      {
+        "u": "(0, 0, 1, 1)",
+        "v": "(0, 1, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 1, 0, 0)",
+        "v": "(1, 1, 0, 0)",
+        "matched": true
+      },
+      {
+        "u": "(0, 1, 0, 0)",
+        "v": "(0, 1, 1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(0, 1, 0, 0)",
+        "v": "(0, 1, 0, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 1, 0, 1)",
+        "v": "(1, 1, 0, 1)",
+        "matched": true
+      },
+      {
+        "u": "(0, 1, 0, 1)",
+        "v": "(0, 1, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 1, 1, 0)",
+        "v": "(1, 1, 1, 0)",
+        "matched": true
+      },
+      {
+        "u": "(0, 1, 1, 0)",
+        "v": "(0, 1, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(0, 1, 1, 1)",
+        "v": "(1, 1, 1, 1)",
+        "matched": true
+      },
+      {
+        "u": "(1, 0, 0, 0)",
+        "v": "(1, 1, 0, 0)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 0, 0)",
+        "v": "(1, 0, 1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 0, 0)",
+        "v": "(1, 0, 0, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 0, 1)",
+        "v": "(1, 1, 0, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 0, 1)",
+        "v": "(1, 0, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 1, 0)",
+        "v": "(1, 1, 1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 1, 0)",
+        "v": "(1, 0, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 0, 1, 1)",
+        "v": "(1, 1, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 1, 0, 0)",
+        "v": "(1, 1, 1, 0)",
+        "matched": false
+      },
+      {
+        "u": "(1, 1, 0, 0)",
+        "v": "(1, 1, 0, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 1, 0, 1)",
+        "v": "(1, 1, 1, 1)",
+        "matched": false
+      },
+      {
+        "u": "(1, 1, 1, 0)",
+        "v": "(1, 1, 1, 1)",
+        "matched": false
+      }
+    ],
+    "self_loops": [],
+    "png": "new_named_hypercube_4d.png"
+  },
+  {
+    "id": "new_named_desargues",
+    "title": "test_named_graphs_with_documented_matching_number[desargues]",
+    "category": "new",
+    "n_nodes": 20,
+    "n_edges": 30,
+    "matching_size": 10,
+    "nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19"
+    ],
+    "edges": [
+      {
+        "u": "0",
+        "v": "1",
+        "matched": true
+      },
+      {
+        "u": "0",
+        "v": "19",
+        "matched": false
+      },
+      {
+        "u": "0",
+        "v": "5",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "2",
+        "matched": false
+      },
+      {
+        "u": "1",
+        "v": "16",
+        "matched": false
+      },
+      {
+        "u": "2",
+        "v": "3",
+        "matched": true
+      },
+      {
+        "u": "2",
+        "v": "11",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "4",
+        "matched": false
+      },
+      {
+        "u": "3",
+        "v": "14",
+        "matched": false
+      },
+      {
+        "u": "4",
+        "v": "5",
+        "matched": true
+      },
+      {
+        "u": "4",
+        "v": "9",
+        "matched": false
+      },
+      {
+        "u": "5",
+        "v": "6",
+        "matched": false
+      },
+      {
+        "u": "6",
+        "v": "7",
+        "matched": true
+      },
+      {
+        "u": "6",
+        "v": "15",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "8",
+        "matched": false
+      },
+      {
+        "u": "7",
+        "v": "18",
+        "matched": false
+      },
+      {
+        "u": "8",
+        "v": "9",
+        "matched": true
+      },
+      {
+        "u": "8",
+        "v": "13",
+        "matched": false
+      },
+      {
+        "u": "9",
+        "v": "10",
+        "matched": false
+      },
+      {
+        "u": "10",
+        "v": "11",
+        "matched": true
+      },
+      {
+        "u": "10",
+        "v": "19",
+        "matched": false
+      },
+      {
+        "u": "11",
+        "v": "12",
+        "matched": false
+      },
+      {
+        "u": "12",
+        "v": "13",
+        "matched": true
+      },
+      {
+        "u": "12",
+        "v": "17",
+        "matched": false
+      },
+      {
+        "u": "13",
+        "v": "14",
+        "matched": false
+      },
+      {
+        "u": "14",
+        "v": "15",
+        "matched": true
+      },
+      {
+        "u": "15",
+        "v": "16",
+        "matched": false
+      },
+      {
+        "u": "16",
+        "v": "17",
+        "matched": true
+      },
+      {
+        "u": "17",
+        "v": "18",
+        "matched": false
+      },
+      {
+        "u": "18",
+        "v": "19",
+        "matched": true
+      }
+    ],
+    "self_loops": [],
+    "png": "new_named_desargues.png"
+  }
+]
