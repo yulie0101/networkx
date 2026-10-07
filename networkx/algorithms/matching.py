@@ -1340,8 +1340,10 @@ def max_cardinality_matching_gabow(
     structure (``uf_base_*`` for Sec. 3.1's S-bar partition, ``uf_dbase_*``
     for the maximal-positive-blossom partition of Sec. 3.4, which Phase 2
     continues to use -- see Notes); ``augmentations`` (Fig. 1's "augment M
-    by Q"); and ``per_iteration``, a list with one entry per iteration
-    holding that same set of keys scoped to just that iteration's work.
+    by Q"); ``stale_bucket_entries_skipped`` (bucket-queue pops where the
+    EVEN-side tightness recheck failed -- see Notes); and ``per_iteration``,
+    a list with one entry per iteration holding that same set of keys
+    scoped to just that iteration's work.
 
     References
     ----------
@@ -1402,6 +1404,7 @@ def max_cardinality_matching_gabow(
                 "uf_dbase_find_hops": 0,
                 "uf_dbase_union_calls": 0,
                 "augmentations": 0,
+                "stale_bucket_entries_skipped": 0,
                 "per_iteration": [],
             }
         )
@@ -1626,7 +1629,40 @@ def max_cardinality_matching_gabow(
                     T.append(z)
                     for u in adj[z]:
                         scan_edge(u, z)
-                else:  # label[by] == "EVEN": blossom step or augmenting path
+                elif (
+                    label[bx] == "EVEN"
+                    and (bd[x] - (Delta - bDelta[x])) + (bd[y] - (Delta - bDelta[y]))
+                    == 0
+                ):
+                    # label[by] == "EVEN" and the edge is currently tight:
+                    # blossom step or augmenting path. The tightness recheck
+                    # is necessary here (and only here -- see below) because
+                    # a bucket entry is inserted with a PREDICTED future pop
+                    # Delta computed from x/y's label at scan time; if y was
+                    # UNLABELED when scanned but later becomes ODD and then
+                    # EVEN (absorbed into a different blossom) before this
+                    # entry is popped, that prediction is stale -- d(y) now
+                    # follows the EVEN formula instead of the UNLABELED
+                    # constant the entry assumed, so the two sides no longer
+                    # sum to zero even though label[by] == "EVEN". Reference:
+                    # GabowRevised.h's Delta-loop has the equivalent check
+                    # `(label[base(y)] == EVEN) && (lcp[x] + lcp[y] == 2 *
+                    # Delta - 2)` guarding this exact branch and nothing else.
+                    # Written as the EVEN-branch of d(v) inlined directly
+                    # (bd[v] - (Delta - bDelta[v])) rather than as a call to
+                    # d(x) + d(y): the equivalent, simpler d(x) + d(y) == 0
+                    # was measured to cost an 11-14% wall-clock regression on
+                    # F1/F2 benchmarks, from d()'s own `label[base.find(v)]`
+                    # dispatch repeating the base.find() calls already done
+                    # for bx/by just above, on every popped entry -- this
+                    # version reuses bx (already computed) for the one label
+                    # check still needed and never calls base.find() again.
+                    # The sibling grow-step branch above (label[by] ==
+                    # "UNLABELED") needs no such recheck: EVEN is permanent
+                    # for the rest of this search once assigned, and d(v) ==
+                    # 1 unconditionally while v stays UNLABELED, so neither
+                    # side of a still-UNLABELED entry can have drifted since
+                    # it was scanned.
                     strue += 1
                     hx, hy = bx, by
                     path1[hx] = strue
@@ -1648,6 +1684,10 @@ def max_cardinality_matching_gabow(
                         shrink_path(b, y, x, dunions)
                     else:
                         found_sap = True
+                elif _counters is not None:
+                    # label[by] == "EVEN" but the tightness recheck above
+                    # failed: a stale bucket entry, silently dropped.
+                    _counters["stale_bucket_entries_skipped"] += 1
                 # Note: processing continues even after found_sap becomes
                 # True, draining every tight edge at this Delta level --
                 # H is defined by the *maximal* positive blossoms as of

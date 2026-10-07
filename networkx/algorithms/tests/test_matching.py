@@ -1,4 +1,5 @@
 import math
+import random
 import statistics
 import time
 from itertools import permutations
@@ -1189,6 +1190,7 @@ class TestMaxCardinalityMatchingGabow:
         "uf_dbase_find_hops",
         "uf_dbase_union_calls",
         "augmentations",
+        "stale_bucket_entries_skipped",
         "per_iteration",
     }
 
@@ -1665,3 +1667,115 @@ class TestMaxCardinalityMatchingGabow:
         assert G.number_of_nodes() == 2 * expected_size  # sanity: perfect matching
         got = self._check(G)
         assert len(got) == expected_size, source
+
+    # -- stale Delta-bucket-entry regression (independent review finding) ----
+
+    def test_stale_bucket_entry_minimal_example(self):
+        """Regression test for a correctness bug found by an independent
+        review: a stale Delta-bucket entry could be popped and treated as
+        currently tight without rechecking its tightness, causing a
+        spurious augmenting-path detection that stopped the search one
+        augmentation early (via the `gained == 0` guard).
+
+        Minimal reported example: a 7-cycle 0-2-7-12-4-1-13-0 plus a path
+        1-5-8-16 attached at node 1 (10 nodes, 10 edges). Before the fix,
+        max_cardinality_matching_gabow returned 4 edges here (with nodes
+        inserted in ascending order specifically) while the true maximum
+        is 5, found by max_weight_matching.
+        """
+        G = nx.Graph()
+        G.add_nodes_from(sorted({0, 2, 7, 12, 4, 1, 13, 5, 8, 16}))  # ascending order
+        G.add_edges_from(
+            [
+                (0, 2),
+                (2, 7),
+                (7, 12),
+                (12, 4),
+                (4, 1),
+                (1, 13),
+                (13, 0),  # 7-cycle
+                (1, 5),
+                (5, 8),
+                (8, 16),  # path attached at node 1
+            ]
+        )
+        self._check(G, expected_size=5)
+
+    @pytest.mark.parametrize("seed", range(12))
+    @pytest.mark.parametrize("order", ["ascending", "descending", "random"])
+    @pytest.mark.parametrize("greedy", [True, False])
+    def test_stale_bucket_entry_randomized(self, seed, order, greedy):
+        """Broader regression coverage for the same bug: random graphs,
+        several node insertion orders (the bug was order-sensitive -- it
+        depends on which vertex a stale entry's prediction was computed
+        against), and both greedy_init settings, checked against
+        max_weight_matching directly (not just via self._check, so the
+        specific (order, greedy) combination under test is unambiguous).
+        """
+        rng = random.Random(seed)
+        n = rng.randint(6, 40)
+        max_m = n * (n - 1) // 2
+        m = max(n - 1, min(max_m, int(rng.choice([0.15, 0.3, 0.5, 0.7, 0.9]) * max_m)))
+        base = nx.gnm_random_graph(n, m, seed=seed)
+        nodes = list(base.nodes())
+        if order == "ascending":
+            ordered_nodes = sorted(nodes)
+        elif order == "descending":
+            ordered_nodes = sorted(nodes, reverse=True)
+        else:
+            ordered_nodes = nodes[:]
+            rng.shuffle(ordered_nodes)
+
+        G = nx.Graph()
+        G.add_nodes_from(ordered_nodes)
+        G.add_edges_from(base.edges())
+
+        got = nx.max_cardinality_matching_gabow(G, _skip_greedy_init=not greedy)
+        assert nx.is_matching(G, got)
+        ref = nx.max_weight_matching(G, maxcardinality=True)
+        assert len(got) == len(ref)
+
+    def test_part1_augmenting_path_length_strictly_increases(self):
+        """Hopcroft-Karp lemma: across the successful iterations of one
+        run (each of which finds a maximal set of vertex-disjoint SHORTEST
+        augmenting paths and augments along all of them), the shortest
+        augmenting path length must strictly increase from iteration to
+        iteration -- once every length-L augmenting path is used up, no
+        new one shorter than L+2 can appear (shortest augmenting paths are
+        always odd length, and augmenting strictly removes the shortest
+        ones available).
+
+        No dedicated hook exists for "the path length found this
+        iteration" -- it is derived from the existing `_counters`
+        per-iteration `delta_phases` (the number of Delta values visited
+        in that iteration's Phase 1 before it stopped): by the function's
+        own Notes ("an augmenting path's length is -w(P) + 1") and the
+        quoted paper relation ("[...] a sap is found. Its length is
+        2*Delta - 1"), a successful iteration that stopped at Delta = D
+        (i.e. incremented delta_phases D+1 times, since Delta starts at 0)
+        found an augmenting path of length 2*D - 1 = 2*delta_phases - 3.
+        This was verified against known cases (a single edge: length 1;
+        several random 40-node graphs: strictly increasing, non-trivial
+        sequences like [1, 5, 7]) before being used here, rather than
+        assumed from the derivation alone. The final, unsuccessful
+        iteration (augmentations == 0) is excluded: no path was found, so
+        it has no length to compare.
+        """
+        for seed in range(15):
+            G = nx.gnm_random_graph(40, 70, seed=seed)
+            counters = {}
+            nx.max_cardinality_matching_gabow(
+                G, _counters=counters, _skip_greedy_init=True
+            )
+            lengths = [
+                2 * entry["delta_phases"] - 3
+                for entry in counters["per_iteration"]
+                if entry["augmentations"] > 0
+            ]
+            assert len(lengths) >= 1, f"seed={seed}: no successful iteration found"
+            assert all(length % 2 == 1 for length in lengths), (
+                f"seed={seed}: augmenting path length must be odd, got {lengths}"
+            )
+            assert all(lengths[i] < lengths[i + 1] for i in range(len(lengths) - 1)), (
+                f"seed={seed}: augmenting path lengths not strictly increasing: {lengths}"
+            )

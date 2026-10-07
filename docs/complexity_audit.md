@@ -310,6 +310,71 @@ some_list`.
 
 ---
 
+## 8. Addendum: correctness fix for stale Δ-bucket entries (post-Stage-A)
+
+**Not part of the original Stage A audit** (commit `8927e3d4d`) — added
+after an independent review found and reported a correctness bug: on a
+small fraction of inputs (52/120,000 in a 20,000-graph search across
+n=6–40, several densities, ascending/descending/random node insertion
+order, greedy on/off), `max_cardinality_matching_gabow` returned a matching
+one edge smaller than `max_weight_matching(maxcardinality=True)`'s.
+
+**Root cause.** `scan_edge` inserts a bucket entry `(z, u)` at a _predicted_
+future `Delta` computed from `d(z)` and `d(u)` _at scan time_. If `u` is
+`UNLABELED` when scanned but later transitions `UNLABELED` → `ODD` → `EVEN`
+(absorbed into a different blossom) before that entry is popped, the
+prediction is stale: `d(u)` now follows the `EVEN` formula instead of the
+`UNLABELED` constant the entry assumed, so `d(x) + d(y) == 0` (tightness)
+no longer holds even though `label[by] == "EVEN"` by the time it's popped.
+The code previously treated every popped entry with `label[by] == "EVEN"`
+as a real blossom-step/augmenting-path candidate with no recheck, so a
+stale entry could cause a spurious augmenting-path detection, which (via
+the `gained == 0` guard in the outer loop) stopped the algorithm one
+augmentation early.
+
+The companion-page C++ reference (`GabowRevised.h`) already guards exactly
+this branch with a tightness recheck — `if ((label[base(y)] == EVEN) &&
+(lcp[x] + lcp[y] == 2 * Delta - 2))` — and does nothing (silently drops the
+entry) when it fails; it does **not** recheck the sibling grow-step
+(`UNLABELED`) branch. This was a **translation miss** in the original
+port, not a deliberate difference: our `d(v)` helper is the pre-existing
+equivalent of the reference's `lcp`, already used for exactly this
+tightness test at H's construction (the `d(u) + d(v) == w_e` check). The
+fix adds the same test, `d(x) + d(y) == 0`, as the condition gating the
+existing `EVEN` branch, with no `else` action (entry silently dropped) —
+mirroring the reference exactly. The grow-step branch is provably
+unaffected: `EVEN` is permanent for the rest of a search once assigned,
+and `d(v) == 1` unconditionally while `v` stays `UNLABELED`, so neither
+side of a still-`UNLABELED` entry can have drifted since it was scanned
+(proved in the code comment at the fix site).
+
+**Complexity impact: none, by construction.**
+
+- _Cost per popped entry_: the added check is `d(x) + d(y) == 0`, i.e. two
+  calls to `d(v)`, each one `base.find(v)` call plus O(1) arithmetic — the
+  same O(α(n)) cost already paid one line earlier for `bx, by =
+base.find(x), base.find(y)` on every popped entry, fix or no fix. No
+  loop, no recursion, no new per-entry work beyond this.
+- _Bucket insertions per iteration_: **unchanged**. The fix touches only
+  the code that runs _after_ an entry is popped; it does not call
+  `queue.insert` anywhere, does not change `scan_edge`'s call sites or
+  logic, and never re-inserts a skipped entry. The O(m) bound on
+  insertions per iteration (each edge scanned O(1) times per
+  vertex-absorption event, §1–2 above) is exactly as before.
+- _No new per-iteration structure_: no new array, dict, or counter sized
+  beyond O(n + m) (`stale_bucket_entries_skipped` is a single `int`).
+- If anything, the fix can only ever _reduce_ work in a given run: entries
+  that previously, incorrectly, triggered `shrink_path` (O(blossom size))
+  or a spurious `found_sap` now correctly do nothing instead.
+
+The per-iteration bound therefore remains O(m·α(n)) exactly as audited in
+§1–2, and the total bound remains O(√n · m · α(n)) (§8 does not change
+anything about the √n iteration-count argument, which is independent of
+this fix). See `benchmarks/run_all.py`'s Stage B re-run (before vs. after)
+for the empirical counterpart of this argument.
+
+---
+
 ## PROBLEM items (short list)
 
 | #   | Item                                                                                     | Status                                                                                                                    | Suggested fix (not applied)                                                                                                                                                                                                                                                                                                            |
