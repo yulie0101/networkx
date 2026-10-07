@@ -1159,6 +1159,7 @@ def max_cardinality_matching_gabow(
     _counters=None,
     _skip_greedy_init=False,
     _union_by_size=True,
+    _initial_mate=None,
 ):
     r"""Compute a maximum cardinality matching using Gabow's algorithm.
 
@@ -1200,6 +1201,22 @@ def max_cardinality_matching_gabow(
         (itself not in the paper) can trivially pre-solve some such inputs,
         which would make a phase-count experiment about Fig. 1 vacuous.
         Never used by default and never changes behavior unless passed.
+
+    _initial_mate : dict, optional (default=None)
+        Internal instrumentation hook, not part of the public API. If
+        given, a mapping v -> mate(v) (same convention as the internal
+        `mate` dict: an unmatched vertex is simply absent, never mapped to
+        None) used as the starting matching instead of either the greedy
+        warm-start above or an empty matching -- `_skip_greedy_init` is
+        ignored when this is given. Used by benchmark experiments to probe
+        how the choice of initial matching (not just its size) affects the
+        number of iterations on adversarial inputs, e.g. comparing this
+        function's own vertex-scan greedy against the reference C++
+        implementation's edge-scan greedy (GabowRevised.h's `init()`),
+        which are not the same algorithm and can produce very different
+        starting matchings on the same graph. Never used by default and
+        never changes behavior unless passed; the caller is responsible
+        for passing a valid matching (not validated here).
 
     _union_by_size : bool, optional (default=True)
         Internal instrumentation hook, not part of the public API. The
@@ -1352,7 +1369,10 @@ def max_cardinality_matching_gabow(
     # optimum). This bound is only used by the optional heuristic fallback
     # below to estimate how many augmentations are likely still needed.
     size_of_M = 0
-    if not _skip_greedy_init:
+    if _initial_mate is not None:
+        mate = dict(_initial_mate)
+        size_of_M = len(mate) // 2
+    elif not _skip_greedy_init:
         for v in G:
             if v in mate:
                 continue
