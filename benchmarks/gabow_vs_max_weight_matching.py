@@ -10,9 +10,8 @@ pytest:
     python benchmarks/gabow_vs_max_weight_matching.py
 
 It times both functions on the *same* sparse random graphs (so the
-comparison is apples-to-apples) across doubling sizes, runs
-max_cardinality_matching_gabow with use_heuristic_fallback=False (we want to
-compare Gabow's algorithm itself, not the constant-factor fallback), and
+comparison is apples-to-apples) across doubling sizes -- Gabow's algorithm
+always runs its full phase-based form, with no single-path fallback -- and
 saves a log-log runtime plot to gabow_vs_max_weight_matching.png next to
 this script. Since max_weight_matching is cubic it becomes impractically
 slow well before Gabow's algorithm does, so once a single max_weight_matching
@@ -58,9 +57,7 @@ def main():
         G = nx.gnm_random_graph(n, m, seed=n)
 
         gabow_t = _timed_best_of(
-            lambda g: nx.max_cardinality_matching_gabow(
-                g, use_heuristic_fallback=False
-            ),
+            lambda g: nx.max_cardinality_matching_gabow(g),
             G,
         )
 

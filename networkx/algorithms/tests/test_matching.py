@@ -661,16 +661,13 @@ class TestMaxCardinalityMatchingGabow:
     """
 
     def _check(self, G, expected_size=None):
-        """Check both use_heuristic_fallback settings against each other,
-        against the size found by max_weight_matching(maxcardinality=True),
-        and (for small graphs) against a brute-force oracle -- and confirm
-        the result is always a valid matching of G.
+        """Check against the size found by max_weight_matching
+        (maxcardinality=True), and (for small graphs) against a
+        brute-force oracle -- and confirm the result is always a valid
+        matching of G.
         """
         got = nx.max_cardinality_matching_gabow(G)
-        got_heur = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
         assert nx.is_matching(G, got)
-        assert nx.is_matching(G, got_heur)
-        assert len(got) == len(got_heur)
         ref = nx.max_weight_matching(G, maxcardinality=True)
         assert len(got) == len(ref)
         if G.number_of_nodes() <= 10:
@@ -815,36 +812,6 @@ class TestMaxCardinalityMatchingGabow:
             if nodes:
                 G.add_edge(nodes[seed % len(nodes)], nodes[seed % len(nodes)])
             self._check(G)
-
-    # -- heuristic fallback --------------------------------------------------
-
-    @pytest.mark.parametrize(
-        "G",
-        [
-            nx.Graph(),
-            nx.path_graph(1),
-            nx.cycle_graph(7),
-            nx.complete_graph(9),
-            nx.star_graph(6),
-            nx.disjoint_union_all([nx.cycle_graph(5), nx.cycle_graph(5)]),
-        ],
-    )
-    def test_heuristic_fallback_matches_default(self, G):
-        default = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=False)
-        heuristic = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
-        assert nx.is_matching(G, default)
-        assert nx.is_matching(G, heuristic)
-        assert len(default) == len(heuristic)
-
-    @pytest.mark.parametrize("seed", range(20))
-    def test_heuristic_fallback_matches_random(self, seed):
-        n = 15 + seed
-        p = 0.1 + 0.03 * (seed % 10)
-        G = nx.gnp_random_graph(n, p, seed=seed)
-        default = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=False)
-        heuristic = nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=True)
-        assert len(default) == len(heuristic)
-        assert len(default) == len(nx.max_weight_matching(G, maxcardinality=True))
 
     # -- large / adversarial structural stress tests -----------------------
 
@@ -1240,16 +1207,6 @@ class TestMaxCardinalityMatchingGabow:
                 counters["uf_base_find_hops"] >= 0
             )  # exercised, not just zero-guarded
 
-    def test_counters_with_heuristic_fallback(self):
-        G = nx.windmill_graph(10, 3)
-        counters = {}
-        matching = nx.max_cardinality_matching_gabow(
-            G, use_heuristic_fallback=True, _counters=counters
-        )
-        assert nx.is_matching(G, matching)
-        assert len(matching) == len(nx.max_weight_matching(G, maxcardinality=True))
-        assert set(counters) == self._COUNTER_KEYS
-
     def test_default_path_not_noticeably_slower_with_counters_disabled(self):
         """`_counters=None` (the default) must not pay for instrumentation:
         time a reasonably-sized graph with and without ever having passed
@@ -1436,28 +1393,22 @@ class TestMaxCardinalityMatchingGabow:
         assert a1 == a2 == a_alone
         assert b1 == b2 == b_alone
 
-    def test_heuristic_fallback_at_greedy_extremes(self):
-        """use_heuristic_fallback decides when to switch strategy using
-        max_size_of_M = min(n // 2, 2 * size_of_M), where size_of_M is the
-        size of the initial greedy matching -- an upper bound that is only
-        as tight as the greedy matching is close to optimal. This test
-        checks both operating modes still agree at the two extremes of that
-        bound's tightness, rather than only on "typical" graphs:
+    def test_greedy_init_extremes(self):
+        """Correctness at the two extremes of initial-matching quality,
+        rather than only on "typical" graphs:
 
-        * A graph where the greedy matching is *already* the true maximum
-          (size_of_M == true max), so max_size_of_M - size_of_M is as small
-          as possible and the fallback's switch-over condition is reached
-          immediately if reached at all.
-        * A graph engineered so the initial greedy matching hits the
-          worst-case 1/2 approximation ratio that maximal matchings are
-          guaranteed to be no worse than (Section: greedy init, "any
-          maximal matching is at least half the optimum"): disjoint copies
-          of a 4-path a-b-c-d added in node order b, c, a, d, so the
-          greedy scan (which visits nodes in insertion order) greedily
-          matches the *middle* edge (b, c) of each copy first, stranding a
-          and d -- giving size_of_M exactly half of the true maximum
-          size(a,b)+(c,d) per copy, the case where max_size_of_M - size_of_M
-          is as large as the bound allows.
+        * A graph where the greedy warm-start is *already* the true
+          maximum (nothing for the real search to do).
+        * A graph engineered so the greedy warm-start hits the worst-case
+          1/2 approximation ratio that maximal matchings are guaranteed to
+          be no worse than (Section: greedy init, "any maximal matching is
+          at least half the optimum"): disjoint copies of a 4-path
+          a-b-c-d added in node order b, c, a, d, so the greedy scan
+          (which visits nodes in insertion order) greedily matches the
+          *middle* edge (b, c) of each copy first, stranding a and d --
+          giving the greedy matching exactly half of the true maximum
+          size(a,b)+(c,d) per copy, so the real search has the most
+          possible work left to do relative to the warm start.
         """
         # Extreme 1: greedy already optimal (a perfect matching via disjoint
         # single edges -- there is nothing for greedy to get wrong).

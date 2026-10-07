@@ -1155,7 +1155,6 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
 @nx._dispatchable
 def max_cardinality_matching_gabow(
     G,
-    use_heuristic_fallback=False,
     _counters=None,
     _skip_greedy_init=False,
     _union_by_size=True,
@@ -1179,18 +1178,6 @@ def max_cardinality_matching_gabow(
     G : NetworkX graph
         Undirected graph. Self-loops are ignored (a self-loop can never be
         part of a matching); multigraphs and directed graphs are rejected.
-
-    use_heuristic_fallback : bool, optional (default=False)
-        If True, once a large fraction of the estimated remaining
-        augmentations have already been spent on full phases, switch to
-        completing the matching by finding one augmenting path at a time
-        instead of a full maximal disjoint set per phase. This mirrors a
-        practical optimization in Gabow's reference implementation for the
-        cheap "tail" of the computation, where a full phase's bookkeeping
-        overhead is not repaid by the few augmenting paths it finds. It
-        never changes the *result* (see Notes) and defaults to off so the
-        algorithm run is a direct, inspectable translation of Fig. 1 of the
-        paper.
 
     _skip_greedy_init : bool, optional (default=False)
         Internal instrumentation hook, not part of the public API. If True,
@@ -1310,19 +1297,16 @@ def max_cardinality_matching_gabow(
     O(n)-deep recursions a large sparse graph (e.g. a long path or cycle)
     can trigger.
 
-    ``use_heuristic_fallback=True`` does not reproduce the reference
-    implementation's fallback exactly: rather than switching to a
-    completely separate classical (non-phase, non-shortest-path) blossom
-    search -- which would duplicate a second, independently-fallible
-    implementation of blossom shrinking for a purely constant-factor gain
-    -- it reuses the same, already-verified Phase 1/Phase 2 machinery but
-    stops each Phase 2 call after its *first* augmenting path instead of
-    continuing to find a maximal disjoint set. This still avoids paying for
-    an exhaustive Phase 2 sweep once few augmenting opportunities remain,
-    without introducing a second augmenting-path algorithm; it is weaker
-    than the reference's fallback (which also skips Phase 1's dual-adjustment
-    bookkeeping per augmentation) but carries no additional correctness risk.
-    Both settings always produce a matching of maximum cardinality.
+    This function always runs the full phase-based algorithm (Phase 1's
+    maximal disjoint set of shortest augmenting paths, every iteration) --
+    unlike the companion-page C++ reference (``GabowBeautified.h``), whose
+    own timing driver enables a single-augmenting-path-at-a-time fallback
+    by default once few augmentations remain; that fallback is not part of
+    the algorithm in [1]_ and, ported faithfully, would abandon the
+    :math:`O(\sqrt{n} \cdot m \cdot \alpha(n))` bound (up to one iteration
+    per remaining augmenting path once triggered, rather than one per
+    distinct shortest-path length) -- so it is intentionally not offered
+    here, not even as an opt-in.
 
     **Instrumentation (``_counters``).** Following Mehlhorn & Nobahari's
     terminology [2]_ -- "iteration" for the outer loop (Fig. 1's ``loop``,
@@ -1366,14 +1350,8 @@ def max_cardinality_matching_gabow(
     # unmatched vertex is simply absent as a key (never mapped to None).
     mate = {}
 
-    # A greedy matching gives a cheap 2-approximate upper bound on the true
-    # maximum matching size (any maximal matching is at least half the
-    # optimum). This bound is only used by the optional heuristic fallback
-    # below to estimate how many augmentations are likely still needed.
-    size_of_M = 0
     if _initial_mate is not None:
         mate = dict(_initial_mate)
-        size_of_M = len(mate) // 2
     elif not _skip_greedy_init:
         for v in G:
             if v in mate:
@@ -1382,9 +1360,7 @@ def max_cardinality_matching_gabow(
                 if u not in mate:
                     mate[v] = u
                     mate[u] = v
-                    size_of_M += 1
                     break
-    max_size_of_M = min(n // 2, 2 * size_of_M)
     number_of_iterations = 0
 
     if _counters is not None:
@@ -1743,7 +1719,7 @@ def max_cardinality_matching_gabow(
             "target_bridge": target_bridge,
         }
 
-    def phase2(H, stop_after_first):
+    def phase2(H):
         """Path-preserving depth-first search on H (paper Sec. 4, Fig. 4,
         Gabow-Tarjan's ``find_ap_set``/``find_ap``) to find a maximal set
         of vertex-disjoint augmenting paths, lift each one back to G and
@@ -1837,8 +1813,6 @@ def max_cardinality_matching_gabow(
 
         augmentations = 0
         for root in list(contracted_into):
-            if stop_after_first and augmentations > 0:
-                break
             if mateHG.get(root) is not None or labelHG.get(root) is not None:
                 continue
             labelHG[root] = "EVEN"
@@ -1934,11 +1908,7 @@ def max_cardinality_matching_gabow(
             if _counters is not None:
                 _counters["per_iteration"].append(_diff(iter_before, _snapshot()))
             break
-        stop_after_first = use_heuristic_fallback and (
-            number_of_iterations > 0.5 * (max_size_of_M - size_of_M)
-        )
-        gained = phase2(H, stop_after_first)
-        size_of_M += gained
+        gained = phase2(H)
         if _counters is not None:
             _counters["per_iteration"].append(_diff(iter_before, _snapshot()))
         if gained == 0:

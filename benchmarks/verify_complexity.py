@@ -76,11 +76,11 @@ def _safe_ratios(values):
     return out
 
 
-def measure(G, skip_greedy=False, heuristic=False):
+def measure(G, skip_greedy=False):
     c = {}
     t0 = time.perf_counter()
     matching = nx.max_cardinality_matching_gabow(
-        G, use_heuristic_fallback=heuristic, _counters=c, _skip_greedy_init=skip_greedy
+        G, _counters=c, _skip_greedy_init=skip_greedy
     )
     elapsed = time.perf_counter() - t0
     total_ops = sum(c[k] for k in OP_KEYS)

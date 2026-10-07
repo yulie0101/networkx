@@ -415,7 +415,7 @@ def run_stage_c(sizes_by_family, n_seeds):
 
     def gabow(greedy_init):
         return lambda G: nx.max_cardinality_matching_gabow(
-            G, use_heuristic_fallback=False, _skip_greedy_init=not greedy_init
+            G, _skip_greedy_init=not greedy_init
         )
 
     def edmonds(G):
@@ -548,7 +548,7 @@ def run_f1_stable_check(n=STABLE_CHECK_N, cs=STABLE_CHECK_CS, seeds=STABLE_CHECK
 
     def gabow_fn(greedy_init):
         return lambda G: nx.max_cardinality_matching_gabow(
-            G, use_heuristic_fallback=False, _skip_greedy_init=not greedy_init
+            G, _skip_greedy_init=not greedy_init
         )
 
     def edmonds_fn(G):

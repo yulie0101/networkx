@@ -6,11 +6,10 @@ directly:
 
     python benchmarks/gabow_complexity_check.py
 
-It times ``networkx.max_cardinality_matching_gabow(G,
-use_heuristic_fallback=False)`` -- deliberately with the heuristic fallback
-off, so it measures Gabow's algorithm itself (Fig. 1 of the paper) rather
-than the constant-factor practical shortcut -- on sparse random graphs of
-increasing size, and checks whether the measured growth is consistent with
+It times ``networkx.max_cardinality_matching_gabow(G)`` -- which always runs
+the full phase-based algorithm (Fig. 1 of the paper), with no single-path
+fallback -- on sparse random graphs of increasing size, and checks whether
+the measured growth is consistent with
 the paper's O(sqrt(n) * m) time bound (Theorem 5.1 of
 "The Weighted Matching Approach to Maximum Cardinality Matching", H.N.
 Gabow, Fundamenta Informaticae 154 (2017)).
@@ -40,7 +39,7 @@ import networkx as nx
 
 def _time_once(G):
     t0 = time.perf_counter()
-    nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=False)
+    nx.max_cardinality_matching_gabow(G)
     return time.perf_counter() - t0
 
 

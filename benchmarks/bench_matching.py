@@ -87,7 +87,7 @@ MAX_BATCH_CALLS = 500
 ALGORITHMS = {
     "gabow": (
         "Gabow (ours)",
-        lambda G: nx.max_cardinality_matching_gabow(G, use_heuristic_fallback=False),
+        lambda G: nx.max_cardinality_matching_gabow(G),
     ),
     "edmonds": (
         "NetworkX Edmonds",
