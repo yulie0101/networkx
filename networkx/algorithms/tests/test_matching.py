@@ -813,6 +813,29 @@ class TestMaxCardinalityMatchingGabow:
                 G.add_edge(nodes[seed % len(nodes)], nodes[seed % len(nodes)])
             self._check(G)
 
+    @pytest.mark.parametrize(
+        "G",
+        [
+            nx.Graph(),
+            nx.path_graph(1),
+            nx.cycle_graph(7),
+            nx.complete_graph(9),
+            nx.star_graph(6),
+            nx.disjoint_union_all([nx.cycle_graph(5), nx.cycle_graph(5)]),
+        ],
+    )
+    def test_special_graphs(self, G):
+        self._check(G)
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_random_graphs_vs_max_weight_matching(self, seed):
+        n = 15 + seed
+        p = 0.1 + 0.03 * (seed % 10)
+        G = nx.gnp_random_graph(n, p, seed=seed)
+        got = nx.max_cardinality_matching_gabow(G)
+        assert nx.is_matching(G, got)
+        assert len(got) == len(nx.max_weight_matching(G, maxcardinality=True))
+
     # -- large / adversarial structural stress tests -----------------------
 
     @staticmethod
@@ -1206,6 +1229,14 @@ class TestMaxCardinalityMatchingGabow:
             assert (
                 counters["uf_base_find_hops"] >= 0
             )  # exercised, not just zero-guarded
+
+    def test_counters_on_windmill_graph(self):
+        G = nx.windmill_graph(10, 3)
+        counters = {}
+        matching = nx.max_cardinality_matching_gabow(G, _counters=counters)
+        assert nx.is_matching(G, matching)
+        assert len(matching) == len(nx.max_weight_matching(G, maxcardinality=True))
+        assert set(counters) == self._COUNTER_KEYS
 
     def test_default_path_not_noticeably_slower_with_counters_disabled(self):
         """`_counters=None` (the default) must not pay for instrumentation:
