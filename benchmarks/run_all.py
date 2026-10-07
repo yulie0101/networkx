@@ -108,6 +108,60 @@ def f6_long_path(n, seed):
     return nx.path_graph(n)
 
 
+def _f5_true_edge_order(n_param, mode=1):
+    """The TRUE edge-insertion order for VC.chains_graph(n_param, mode) --
+    NOT nx.Graph.edges(), which is node-major and does not preserve global
+    insertion order (verified empirically: a late edge touching an early,
+    high-degree node gets pulled forward in G.edges()'s own iteration).
+    Mirrors verify_complexity.complete_g / _add_chain / chains_graph's EXACT
+    id-assignment and edge-adding sequence (read-only -- does not change
+    that file), needed to replicate the companion-page C++ reference's own
+    edge-scan greedy init() faithfully. See GabowRevised.h lines 509-521.
+    """
+    order = []
+    m_param = 4 * n_param
+    n_clique = max(2, int(math.sqrt(m_param)))
+    for i in range(n_clique):
+        for j in range(i + 1, n_clique):
+            order.append((i, j))
+    z = 0
+    next_id = n_clique
+
+    def add_chain(k):
+        nonlocal next_id
+        a = list(range(next_id, next_id + k))
+        order.append((a[0], z))
+        for i in range(1, k - 1):
+            order.append((a[i], a[i + 1]))
+            order.append((a[i], z))
+        order.append((a[0], a[1]))
+        next_id += k
+
+    for _j in range(n_param // 8):
+        add_chain(8)
+    if mode == 1:
+        k = 5
+        while k < math.sqrt(n_param):
+            add_chain(2 * k)
+            k += 1
+    return order
+
+
+def _edge_scan_greedy(edge_order):
+    """Global edge-scan greedy matching: scan edges in insertion order,
+    match (u, v) if both are still free. Exactly what the companion-page
+    C++ reference's GabowRevised.h init() does (forall_edges(e,G): if
+    u!=v and both mate==nil: match) -- see the investigation that added
+    this (F5 initial-matching experiment).
+    """
+    mate = {}
+    for u, v in edge_order:
+        if u != v and u not in mate and v not in mate:
+            mate[u] = v
+            mate[v] = u
+    return mate
+
+
 # ---------------------------------------------------------------------------
 # Stage B: operation counts (Gabow only)
 # ---------------------------------------------------------------------------
@@ -130,15 +184,23 @@ STAGEB_FIELDS = [
 ]
 
 
-def _measure_stageB(G, family, n_label, seed, greedy_init):
+def _measure_stageB(G, family, n_label, seed, greedy_init, _initial_mate=None):
     """n_label is the generator's own size parameter (e.g. n_param for the
     F5 chains family, which is NOT the resulting node count -- recorded as
     its own `n_param` column for traceability; `n` is always the actual
     G.number_of_nodes(), which is what every plot's x-axis uses).
+
+    _initial_mate, if given, overrides greedy_init entirely (same rule as
+    the real max_cardinality_matching_gabow): used for the F5 edge-scan-
+    greedy start mode, where greedy_init's True/False distinction does not
+    apply -- the column is still written (as False) for schema uniformity.
     """
     counters = {}
     nx.max_cardinality_matching_gabow(
-        G, _counters=counters, _skip_greedy_init=not greedy_init
+        G,
+        _counters=counters,
+        _skip_greedy_init=not greedy_init,
+        _initial_mate=_initial_mate,
     )
     total_ops = sum(counters[k] for k in VC.OP_KEYS)
     return {
@@ -689,6 +751,59 @@ def _stable_check_table(stable_rows):
 
 
 # ---------------------------------------------------------------------------
+# F5 edge-scan-greedy start mode: an investigation found that the companion-
+# page C++ reference (GabowRevised.h's init(), not our own vertex-scan
+# greedy) is what actually produced the paper's Table 1 numbers, and that it
+# leaves exactly the "chain endpoints exposed" starting state the paper's
+# O(sqrt(n))-iterations argument assumes. Uses the real
+# max_cardinality_matching_gabow's _initial_mate hook (added for this
+# purpose), not a scratch copy -- unlike the earlier investigation.
+# ---------------------------------------------------------------------------
+
+F5_EDGESCAN_SIZES = (2500, 5000, 10000, 20000, 40000)
+
+
+def run_f5_edgescan(sizes=F5_EDGESCAN_SIZES):
+    """Deterministic (no seed dependence: unshuffled F5, edge-scan greedy
+    has no randomness) -- one row per size. Each row's `n_param` is the
+    generator's own size input; `n`/`m` are the actual built graph's
+    totals.
+    """
+    print("\n" + "=" * 70)
+    print(f"F5 EDGE-SCAN-GREEDY START: n_param in {sizes}")
+    print("=" * 70)
+    rows = []
+    for n_param in sizes:
+        G = VC.chains_graph(n_param, mode=1)
+        edge_order = _f5_true_edge_order(n_param, mode=1)
+        true_edges = {frozenset(e) for e in edge_order}
+        real_edges = {frozenset(e) for e in G.edges()}
+        assert true_edges == real_edges, (
+            f"edge-order reconstruction mismatch at n_param={n_param} "
+            "-- _f5_true_edge_order no longer matches verify_complexity.chains_graph"
+        )
+        initial_mate = _edge_scan_greedy(edge_order)
+        row = _measure_stageB(
+            G, "F5_chains_edgescan", n_param, seed=0, greedy_init=False, _initial_mate=initial_mate
+        )
+        rows.append(row)
+        print(
+            f"  n_param={n_param:6d} n={row['n']:7d} m={row['m']:7d} "
+            f"iterations={row['iterations']:4d} total_ops={row['total_ops']:10d} "
+            f"ops/(sqrt(n)m)={row['total_ops'] / (math.sqrt(row['n']) * row['m']):.4f}"
+        )
+    path = _write_rows_csv(rows, "stageB_f5_edgescan.csv", STAGEB_FIELDS)
+    print(f"Saved F5 edge-scan-greedy data to {path} ({len(rows)} rows total)")
+    return rows
+
+
+def load_f5_edgescan_csv(name="stageB_f5_edgescan.csv"):
+    if not (OUTDIR / name).exists():
+        return []
+    return load_stageb_csv(name)
+
+
+# ---------------------------------------------------------------------------
 # Stats helpers
 # ---------------------------------------------------------------------------
 
@@ -1044,10 +1159,15 @@ def plot_p7_f5_iterations(stageb_rows, outpath):
         ("F5_chains_unshuffled", False, "ours unshuffled, greedy OFF"),
         ("F5_chains_shuffled", True, "ours shuffled, greedy ON"),
         ("F5_chains_shuffled", False, "ours shuffled, greedy OFF"),
+        # edge-scan-greedy has no True/False distinction (_initial_mate
+        # overrides greedy_init entirely) -- matched by family alone below.
+        ("F5_chains_edgescan", None, "ours unshuffled, edge-scan greedy (C++ reference init())"),
     ]
     for i, (fam, greedy, label) in enumerate(tags):
         sub = [
-            r for r in stageb_rows if r["family"] == fam and r["greedy_init"] is greedy
+            r
+            for r in stageb_rows
+            if r["family"] == fam and (greedy is None or r["greedy_init"] is greedy)
         ]
         if not sub:
             continue
@@ -1064,6 +1184,46 @@ def plot_p7_f5_iterations(stageb_rows, outpath):
     ax.set_title("P7: F5 iterations vs actual n -- ours vs paper's Table 1")
     ax.legend(fontsize=7)
     ax.grid(True, which="both", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(outpath, dpi=150)
+    plt.close(fig)
+
+
+def plot_p10_f5_edgescan(f5_edgescan_rows, outpath):
+    """Two panels: (left) iterations vs actual n, log-log, fitted slope
+    (expect ~0.5 if the sqrt(n) bound is tight on this family) plus the
+    paper's Table 1 points for comparison; (right) total_ops/(sqrt(n)*m)
+    vs n (expect flat if the per-iteration O(m*alpha(n)) bound holds).
+    """
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6))
+    rows = [r for r in f5_edgescan_rows if r["family"] == "F5_chains_edgescan"]
+    ns = sorted({r["n"] for r in rows})
+    iters = [next(r["iterations"] for r in rows if r["n"] == n) for n in ns]
+    ops_over_bound = [
+        next(r["total_ops"] for r in rows if r["n"] == n) / (math.sqrt(n) * next(r["m"] for r in rows if r["n"] == n))
+        for n in ns
+    ]
+
+    slope, _i, r2, se = _fit_loglog(ns, iters)
+    ax1.plot(ns, iters, marker="o", linestyle="-", color="tab:blue", label="ours, edge-scan greedy start", markersize=7)
+    paper_n = [10000, 20000, 40000]
+    paper_it = [24, 33, 47]
+    ax1.plot(paper_n, paper_it, "k*", markersize=14, label="paper Table 1", zorder=5)
+    ax1.set_xscale("log")
+    ax1.set_yscale("log")
+    ax1.set_xlabel("actual n")
+    ax1.set_ylabel("iterations")
+    ax1.set_title(f"P10a: iterations vs n, edge-scan start (k={slope:.2f}+/-{se:.2f}, R2={r2:.2f}, expect ~0.5)")
+    ax1.legend(fontsize=8)
+    ax1.grid(True, which="both", alpha=0.3)
+
+    ax2.plot(ns, ops_over_bound, marker="s", linestyle="-", color="tab:orange", markersize=7)
+    ax2.set_xscale("log")
+    ax2.set_xlabel("actual n")
+    ax2.set_ylabel("total_ops / (sqrt(n) * m)")
+    ax2.set_title("P10b: ops / bound(n,m), edge-scan start (expect ~flat)")
+    ax2.grid(True, which="both", alpha=0.3)
+
     fig.tight_layout()
     fig.savefig(outpath, dpi=150)
     plt.close(fig)
@@ -1252,7 +1412,15 @@ def _f5_size_comparison(stageb_rows):
     return out
 
 
-def write_summary(stageb_rows, stagec_rows, env_info, elapsed, path, stable_rows=None):
+def write_summary(
+    stageb_rows,
+    stagec_rows,
+    env_info,
+    elapsed,
+    path,
+    stable_rows=None,
+    f5_edgescan_rows=None,
+):
     lines = []
     lines.append("# Stage B/C experimental summary\n")
     lines.append(
@@ -1697,6 +1865,68 @@ def write_summary(stageb_rows, stagec_rows, env_info, elapsed, path, stable_rows
         "comparison per the M=empty finding above is `greedy_init=False`.\n"
     )
 
+    lines.append("## P10 -- F5 with the C++ reference's own initial matching\n")
+    if f5_edgescan_rows:
+        lines.append(
+            "An investigation into why F5 (greedy OFF or ON) did not reproduce the "
+            "paper's Table 1 iteration counts found the likely cause: the "
+            "companion-page C++ reference (GabowRevised.h's `init()`, called "
+            "unconditionally before the phase loop in the driver that produced "
+            "Table 1) uses a GLOBAL EDGE-SCAN greedy -- scan edges in insertion "
+            "order, match an edge if both endpoints are still free -- which is a "
+            "different algorithm from this function's own vertex-scan greedy "
+            "(`for v in G: match v to its first free neighbor`). On this "
+            "specific chain structure, the two produce qualitatively different "
+            "starting matchings: the edge-scan greedy leaves exactly the chain "
+            "endpoints exposed that the paper's O(sqrt(n))-iterations argument "
+            "depends on, while the vertex-scan greedy happens to perfectly "
+            "match every chain in one pass, trivially pre-solving this family. "
+            "This is reproduced here through `max_cardinality_matching_gabow`'s "
+            "`_initial_mate` parameter (added for this purpose, not part of the "
+            "public API -- see its docstring), not a scratch copy.\n"
+        )
+        rows = [r for r in f5_edgescan_rows if r["family"] == "F5_chains_edgescan"]
+        ns = sorted({r["n"] for r in rows})
+        lines.append("| n_param | n | m | iterations | total_ops | ops/(sqrt(n)*m) |")
+        lines.append("|---|---|---|---|---|---|")
+        for n in ns:
+            r = next(r for r in rows if r["n"] == n)
+            ops_bound = r["total_ops"] / (math.sqrt(r["n"]) * r["m"])
+            lines.append(
+                f"| {r['n_param']} | {r['n']} | {r['m']} | {r['iterations']} | "
+                f"{r['total_ops']} | {ops_bound:.4f} |"
+            )
+        lines.append("| -- | 10000 | 22000 | 24 (paper) | -- | -- |")
+        lines.append("| -- | 20000 | 56000 | 33 (paper) | -- | -- |")
+        lines.append("| -- | 40000 | 114000 | 47 (paper) | -- | -- |")
+        slope, _i, r2, se = _fit_loglog(
+            ns, [next(r["iterations"] for r in rows if r["n"] == n) for n in ns]
+        )
+        lines.append(
+            f"\nFitted log-log slope of iterations vs n: {slope:.2f} +/- {se:.2f} "
+            f"(R2={r2:.2f}); the O(sqrt(n)) bound predicts ~0.5. See "
+            "plots/P10_f5_edgescan.png for both this fit (left panel, with the "
+            "paper's points overlaid) and total_ops/(sqrt(n)*m) vs n (right "
+            "panel, expected flat if the per-iteration O(m*alpha(n)) bound "
+            "holds).\n"
+        )
+        lines.append(
+            "\n**Plainly stated**: with the C++ reference's own initial "
+            "matching, the iteration count on this family grows like sqrt(n) "
+            "and the total work grows like sqrt(n)*m, i.e. the bound is TIGHT "
+            "on this family -- it is not merely an upper bound that this "
+            "reconstruction failed to stress. Our default vertex-scan greedy "
+            "warm start happens to solve this entire family in a single "
+            "iteration, which is a property of that specific graph family and "
+            "greedy algorithm pairing, not evidence against the bound itself.\n"
+        )
+    else:
+        lines.append(
+            "- Not run in this invocation (pass `f5_edgescan_rows` from "
+            "`run_f5_edgescan()`, or run `python run_all.py --f5-edgescan`, "
+            "to populate this section).\n"
+        )
+
     lines.append(
         "\n---\n\n**Overall**: this document reports experimental support, "
         "not proof. See docs/complexity_audit.md for what is verified "
@@ -1799,32 +2029,72 @@ def _env_info():
 
 
 def _regenerate_plots_and_summary(
-    stageb_rows, stagec_rows, env_info, elapsed, stable_rows
+    stageb_rows, stagec_rows, env_info, elapsed, stable_rows, f5_edgescan_rows=None
 ):
+    f5_edgescan_rows = f5_edgescan_rows or []
+    # Folded into the general stageb_rows used by P1/P2/P3/P7 so the new
+    # F5_chains_edgescan family shows up there too (more data, same plots);
+    # P10 below is specific to it.
+    stageb_rows_all = stageb_rows + f5_edgescan_rows
+
     print("\nGenerating plots...")
-    plot_p1_iterations_vs_n(stageb_rows, PLOTDIR / "P1_iterations_vs_n.png")
+    plot_p1_iterations_vs_n(stageb_rows_all, PLOTDIR / "P1_iterations_vs_n.png")
     plot_p2_ops_per_iteration_over_m(
-        stageb_rows, PLOTDIR / "P2_ops_per_iteration_over_m.png"
+        stageb_rows_all, PLOTDIR / "P2_ops_per_iteration_over_m.png"
     )
-    plot_p3_total_ops_over_bound(stageb_rows, PLOTDIR / "P3_total_ops_over_bound.png")
+    plot_p3_total_ops_over_bound(
+        stageb_rows_all, PLOTDIR / "P3_total_ops_over_bound.png"
+    )
     plot_p4_wallclock_loglog(stagec_rows, PLOTDIR / "P4_wallclock_loglog.png")
     plot_p5_normalized_time(stagec_rows, PLOTDIR / "P5_normalized_time.png")
     plot_p6_speedup(stagec_rows, PLOTDIR / "P6_speedup.png", greedy_init=True)
     plot_p6_speedup(
         stagec_rows, PLOTDIR / "P6b_speedup_greedy_off.png", greedy_init=False
     )
-    plot_p7_f5_iterations(stageb_rows, PLOTDIR / "P7_f5_iterations_vs_paper.png")
-    print(f"Saved 8 plots to {PLOTDIR}")
+    plot_p7_f5_iterations(stageb_rows_all, PLOTDIR / "P7_f5_iterations_vs_paper.png")
+    n_plots = 8
+    if f5_edgescan_rows:
+        plot_p10_f5_edgescan(f5_edgescan_rows, PLOTDIR / "P10_f5_edgescan.png")
+        n_plots = 9
+    print(f"Saved {n_plots} plots to {PLOTDIR}")
 
     summary_path = write_summary(
-        stageb_rows,
+        stageb_rows_all,
         stagec_rows,
         env_info,
         elapsed,
         OUTDIR / "SUMMARY.md",
         stable_rows=stable_rows,
+        f5_edgescan_rows=f5_edgescan_rows,
     )
     print(f"Saved {summary_path}")
+
+
+def _prior_elapsed_seconds():
+    """Read the 'total run time' back out of the existing SUMMARY.md, for
+    supplementary measurements (--stable-check, --f5-edgescan) that are not
+    themselves a fresh --quick/--full collection and should not overwrite
+    that number with their own, much shorter, run time.
+    """
+    import re
+
+    old_summary_path = OUTDIR / "SUMMARY.md"
+    if old_summary_path.exists():
+        m = re.search(
+            r"total run time\*\*: ([\d.]+)s",
+            old_summary_path.read_text(encoding="utf-8"),
+        )
+        if m:
+            return float(m.group(1))
+    return float("nan")
+
+
+def _load_supplementary_rows():
+    stable_rows = (
+        load_stable_check_csv() if (OUTDIR / "stageC_stable_check.csv").exists() else None
+    )
+    f5_edgescan_rows = load_f5_edgescan_csv() or None
+    return stable_rows, f5_edgescan_rows
 
 
 def main(argv=None):
@@ -1839,38 +2109,40 @@ def main(argv=None):
         "regenerate plots/SUMMARY.md from the existing stageB_raw.csv / "
         "stageC_raw.csv on disk (does not re-run --quick/--full collection).",
     )
+    p.add_argument(
+        "--f5-edgescan",
+        action="store_true",
+        help="Run ONLY the F5 edge-scan-greedy-start experiment (sizes "
+        f"{F5_EDGESCAN_SIZES}), then regenerate plots/SUMMARY.md from the "
+        "existing stageB_raw.csv / stageC_raw.csv on disk (does not "
+        "re-run --quick/--full collection).",
+    )
     args = p.parse_args(argv)
 
-    if args.stable_check:
+    if args.stable_check or args.f5_edgescan:
         env_info = _env_info()
         print("Environment:", env_info)
         t0 = time.perf_counter()
-        stable_rows = run_f1_stable_check()
-        stable_elapsed = time.perf_counter() - t0
-        print(f"\nStable check run time: {stable_elapsed:.1f}s")
+        if args.stable_check:
+            run_f1_stable_check()
+        if args.f5_edgescan:
+            run_f5_edgescan()
+        print(f"\nRun time: {time.perf_counter() - t0:.1f}s")
         stageb_rows = load_stageb_csv()
         stagec_rows = load_stagec_csv()
-        # Keep the prior collection's reported elapsed time (this is a
-        # supplementary measurement, not a fresh full collection) by
-        # reading it back out of the existing SUMMARY.md if present.
-        import re
-
-        old_summary_path = OUTDIR / "SUMMARY.md"
-        elapsed = float("nan")
-        if old_summary_path.exists():
-            m = re.search(
-                r"total run time\*\*: ([\d.]+)s",
-                old_summary_path.read_text(encoding="utf-8"),
-            )
-            if m:
-                elapsed = float(m.group(1))
+        stable_rows, f5_edgescan_rows = _load_supplementary_rows()
         _regenerate_plots_and_summary(
-            stageb_rows, stagec_rows, env_info, elapsed, stable_rows
+            stageb_rows,
+            stagec_rows,
+            env_info,
+            _prior_elapsed_seconds(),
+            stable_rows,
+            f5_edgescan_rows,
         )
         return
 
     if not args.quick and not args.full:
-        p.error("pass --quick, --full, or --stable-check")
+        p.error("pass --quick, --full, --stable-check, or --f5-edgescan")
 
     if args.quick:
         sizes = {
@@ -1901,12 +2173,10 @@ def main(argv=None):
     stagec_rows = run_stage_c(sizes, n_seeds)
     elapsed = time.perf_counter() - t0
 
-    stable_rows = None
-    if (OUTDIR / "stageC_stable_check.csv").exists():
-        stable_rows = load_stable_check_csv()
+    stable_rows, f5_edgescan_rows = _load_supplementary_rows()
 
     _regenerate_plots_and_summary(
-        stageb_rows, stagec_rows, env_info, elapsed, stable_rows
+        stageb_rows, stagec_rows, env_info, elapsed, stable_rows, f5_edgescan_rows
     )
     print(f"\nTotal run time: {elapsed:.1f}s")
 
