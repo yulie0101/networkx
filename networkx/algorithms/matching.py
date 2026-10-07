@@ -1171,7 +1171,9 @@ def max_cardinality_matching_gabow(
     path (see Notes). Repeatedly finding a maximal collection of
     vertex-disjoint shortest augmenting paths and augmenting along all of
     them (the classical Hopcroft-Karp/Karzanov strategy) yields a maximum
-    cardinality matching in :math:`O(\sqrt{n} \cdot m)` time.
+    cardinality matching in :math:`O(\sqrt{n} \cdot m \cdot \alpha(n))` time
+    (assuming no isolated vertices; :math:`O(\sqrt{n} \cdot (n + m) \cdot
+    \alpha(n))` in general -- see Notes).
 
     Parameters
     ----------
@@ -1242,7 +1244,9 @@ def max_cardinality_matching_gabow(
     Notes
     -----
     **Algorithm.** Each outer iteration ("phase", Fig. 1 of [1]_) runs two
-    steps:
+    steps, which this docstring and the code below call "Phase 1" and
+    "Phase 2" (following Mehlhorn & Nobahari's terminology [2]_); Gabow
+    [1]_ itself calls the same two steps "Part I" and "Parts II-III".
 
     * *Phase 1* (Sec. 3) is a single search of Edmonds' weighted matching
       algorithm specialized to weights of 2 (matched edges) and 0 (unmatched
@@ -1279,34 +1283,94 @@ def max_cardinality_matching_gabow(
     phase-count bound (cited, not reproved, in [1]_, Sec. 2) and falls out
     automatically here because each phase both finds a *shortest* augmenting
     path and augments along a *maximal* disjoint set of such paths -- no
-    separate bookkeeping is needed to obtain it. Combined with the O(m) cost
-    per phase this gives the stated O(:math:`\sqrt{n} \cdot m`) total time
-    (Theorem 5.1 of [1]_).
+    separate bookkeeping is needed to obtain it. Each phase costs O(m) in
+    the paper's own idealized accounting; this implementation's union-find
+    (see below) adds a further O(:math:`\alpha(n)`) factor per operation
+    and an O(n) re-initialization per phase, giving O(sqrt(n) * m *
+    alpha(n)) total time assuming no isolated vertices (m >= n/2), or
+    O(sqrt(n) * (n + m) * alpha(n)) in general (see
+    ``docs/complexity_audit.md`` for the full derivation).
 
-    **Implementation notes / deviations from the reference.** Blossom
-    partitions here use a small union-find with path compression only (no
-    union-by-rank, since the base vertex chosen when two blossoms merge is
-    fixed by the algorithm rather than arbitrary), giving amortized
-    O(:math:`\log n`) per operation. This is a practical stand-in for the
-    specialized O(1) amortized incremental-tree union-find structure of
-    Gabow and Tarjan used in the reference implementation and does not
-    change the algorithm's overall complexity class. Every helper that the
-    reference implements recursively (the Phase 2 search and the two
-    path-reconstruction routines) is implemented here with an explicit
-    stack instead, since Python's call stack is far shallower than the
-    O(n)-deep recursions a large sparse graph (e.g. a long path or cycle)
-    can trigger.
+    **Union-find.** Blossom partitions use union by size plus path
+    compression (`_union_by_size`, on by default), giving O(:math:`\alpha(n)`)
+    amortized per operation -- the same asymptotic guarantee as the
+    companion-page C++ reference's LEDA-based union-find (``node_partition``,
+    union by rank/size plus path compression; confirmed directly from its
+    source, not the specialized O(1)-amortized incremental-tree structure
+    of Gabow and Tarjan, which neither this implementation nor that
+    reference actually uses). Every helper that the reference implements
+    recursively (the Phase 2 search and the two path-reconstruction
+    routines) is implemented here with an explicit stack instead, since
+    Python's call stack is far shallower than the O(n)-deep recursions a
+    large sparse graph (e.g. a long path or cycle) can trigger.
 
-    This function always runs the full phase-based algorithm (Phase 1's
-    maximal disjoint set of shortest augmenting paths, every iteration) --
-    unlike the companion-page C++ reference (``GabowBeautified.h``), whose
-    own timing driver enables a single-augmenting-path-at-a-time fallback
-    by default once few augmentations remain; that fallback is not part of
-    the algorithm in [1]_ and, ported faithfully, would abandon the
-    :math:`O(\sqrt{n} \cdot m \cdot \alpha(n))` bound (up to one iteration
-    per remaining augmenting path once triggered, rather than one per
-    distinct shortest-path length) -- so it is intentionally not offered
-    here, not even as an opt-in.
+    **Differences from the C++ reference (``GabowBeautified.h``).** This
+    port was checked against the companion-page C++ reference by compiling
+    it (unmodified except making its members public, for test-harness
+    access) and comparing results directly; see ``docs/cpp_provenance.md``
+    and ``docs/complexity_audit.md`` Sec. 8 for the full investigation. The
+    known, checked differences, none of which change the returned
+    matching's *size*:
+
+    * *Greedy warm-start.* This function's default warm-start is a
+      vertex-scan greedy (per free vertex, first free neighbor); the
+      reference's own ``init()`` is a global edge-scan greedy. These are
+      different algorithms and can produce different starting matchings
+      on the same graph (see ``_initial_mate``).
+    * *EVEN-branch tightness recheck.* A popped bucket-queue entry is
+      rechecked for tightness before being treated as a blossom
+      step/augmenting path (see the comment at the recheck site). The
+      reference lacks this recheck; so, as literally written, does the
+      later ``GabowRevised.h``-style ``lcp``-based reformulation -- but
+      that version's bridge-step is defined as "while there exists a tight
+      even-even edge", which is a live recheck by construction, and its
+      C++ realization (``GabowRevised.h``) also includes an explicit
+      ``lcp[x] + lcp[y] == 2*Delta - 2`` guard at the equivalent site. This
+      function's recheck mirrors that guard. Dynamic testing (232,195
+      cases) found the reference's own bucket order (FIFO, see below)
+      already prevents the one known failure mode from arising; the
+      recheck is kept regardless, as a correctness guarantee that does not
+      depend on that empirical observation.
+    * *Bucket-queue order, `T`/`tmp`/root order.* The Delta-bucket queue is
+      FIFO, matching the reference's LEDA ``list`` (``append`` + ``pop``,
+      which removes the *first* element). `T` is appended to where the
+      reference prepends (``push``); the Phase 2 blossom-absorption list
+      (``tmp``) is appended to where the reference prepends
+      (``push_front``); Phase 2's root-selection order scans
+      ``contracted_into``'s keys in first-occurrence order where the
+      reference scans `T` directly. All three are tie-breaks only: a
+      faithful-order cross-check against the compiled reference (6,320
+      cases: the 52 known cases, a 6,000-graph battery, and small
+      adversarial instances, two initial matchings each) found
+      6,314/6,320 identical edge-for-edge, with 100% agreement on matching
+      size, iteration count, and augmentations per iteration; the
+      remaining 6 differ only in *which* same-size maximum matching is
+      returned.
+    * *Dual-value (`bd`/`bDelta`) initialization.* This function resets
+      ``bd``/``bDelta`` to 1/0 for every vertex at the start of *every*
+      iteration, following ADM24's stated convention ("we initialize
+      d(v) to one for all v"). The reference's ``bd``/``bDelta`` are
+      class members that persist across iterations and default to 0 for
+      a never-touched vertex (from LEDA's ``node_array<int>`` with no
+      explicit default -- not independently verified against real LEDA).
+      Checked (scratch only) that neither the per-iteration reset nor the
+      initial value accounts for the 6 tie-break cases above: forcing
+      either one to match the reference's apparent behavior left the
+      same 6 cases differing, so this is included here as a disclosed,
+      checked difference, not a demonstrated cause of anything.
+    * *The `gained == 0` guard.* If Phase 1 finds an augmenting path but
+      Phase 2 finds none in H, this function raises
+      ``NetworkXAlgorithmError`` (Corollary 3.3 guarantees this is
+      unreachable; the reference has no equivalent check and would retry
+      indefinitely). Not observed to fire in any test in this project's
+      history.
+    * *No heuristic fallback.* The reference's own timing driver enables a
+      single-augmenting-path-at-a-time fallback by default once few
+      augmentations remain; that fallback is not part of the algorithm in
+      [1]_ and, ported faithfully, would abandon the O(sqrt(n) * m *
+      alpha(n)) bound (up to one iteration per remaining augmenting path
+      once triggered, rather than one per distinct shortest-path length)
+      -- so it is intentionally not offered here, not even as an opt-in.
 
     **Instrumentation (``_counters``).** Following Mehlhorn & Nobahari's
     terminology [2]_ -- "iteration" for the outer loop (Fig. 1's ``loop``,
@@ -1322,10 +1386,11 @@ def max_cardinality_matching_gabow(
     phase carries blossoms over from a previous one); ``union_find_find_
     calls``/``union_find_find_hops``/``union_find_union_calls`` split by
     structure (``uf_base_*`` for Sec. 3.1's S-bar partition, ``uf_dbase_*``
-    for the maximal-positive-blossom partition of Sec. 3.4, which Phase 2
-    continues to use -- see Notes); ``augmentations`` (Fig. 1's "augment M
-    by Q"); ``stale_bucket_entries_skipped`` (bucket-queue pops where the
-    EVEN-side tightness recheck failed -- see Notes); and ``per_iteration``,
+    for the maximal-positive-blossom partition that Phase 2 continues to
+    use -- see Notes); ``augmentations`` (Fig. 1's "augment M by Q");
+    ``stale_bucket_entries_skipped`` (bucket-queue pops where the
+    EVEN-side tightness recheck failed -- see Notes; not observed to be
+    nonzero with the current, FIFO bucket order); and ``per_iteration``,
     a list with one entry per iteration holding that same set of keys
     scoped to just that iteration's work.
 
@@ -1402,8 +1467,9 @@ def max_cardinality_matching_gabow(
         between the two roots being merged (whichever tree happens to be
         bigger), which is almost never the specific vertex (the blossom
         base) the algorithm needs `find` to report. So the physical tree
-        shape (``parent``/``size``, balanced by size for O(log n) find) is
-        kept separate from the logical identity each physical root
+        shape (``parent``/``size``, balanced by size and path-compressed
+        for O(alpha(n)) amortized find) is kept separate from the
+        logical identity each physical root
         currently stands for (``rep``, forced explicitly by ``make_rep``
         after the unions that form a blossom); `find` always resolves to
         the physical root first, then looks up its current logical rep.
@@ -1517,7 +1583,8 @@ def max_cardinality_matching_gabow(
         target_bridge = {}
         # `base` is Edmonds' S-bar blossom partition, live during this
         # search; `dbase` accumulates the *maximal positive* blossoms
-        # (Sec. 3.4) and is committed to only once per Delta level.
+        # (Construction of H -- ADM24, arXiv:2409.14849, Sec. 2.3.4) and
+        # is committed to only once per Delta level.
         base = _UnionFind(G, name="base", by_size=_union_by_size)
         dbase = _UnionFind(G, name="dbase", by_size=_union_by_size)
         path1 = {}
@@ -1868,17 +1935,25 @@ def max_cardinality_matching_gabow(
                             endpoints_of_M.append(cur)
                             cur = mateHG[cur]
                             endpoints_of_M.append(cur)
-                            # Order of `tmp` here doesn't affect which
-                            # vertices get explored below -- it only
-                            # changes the DFS order among this blossom's
-                            # newly-absorbed members. The reference C++
-                            # instead prepends (tmp.push_front), processing
-                            # the member closest to bh first; append()
-                            # processes them closest-last. Verified
+                            # This walk visits the blossom's odd vertices
+                            # u_k, u_{k-1}, ..., u_1 in that order (using
+                            # Mehlhorn & Nobahari's notation [2]_, Sec.
+                            # 3.1: u_1 is closest to bh). Appending here and
+                            # pushing `tmp` onto `stack` below in the same
+                            # (u_k ... u_1) order puts u_1 on top, so it is
+                            # explored first -- matching the paper's
+                            # prescribed order and the reference C++'s
+                            # recursive exploration order (which visits u_1
+                            # first directly, via tmp.push_front + a plain
+                            # forall; the push/pop-order reversal here is
+                            # the standard transform for replacing that
+                            # recursion with an explicit stack). Only the
+                            # DFS order among this blossom's newly-absorbed
+                            # members depends on this, not which vertices
+                            # get explored or whether one is found; verified
                             # equivalent (636 trials incl. nested/windmill
                             # blossom stress graphs, all agreeing with
-                            # max_weight_matching) before adopting this
-                            # order.
+                            # max_weight_matching).
                             tmp.append(cur)
                             pv, pu = parentHG[cur]
                             other = pu if rep[pv] == cur else pv
@@ -1913,8 +1988,17 @@ def max_cardinality_matching_gabow(
             _counters["per_iteration"].append(_diff(iter_before, _snapshot()))
         if gained == 0:
             # Phase 1 found an sap, so Phase 2 must find at least one
-            # augmenting path in H (Corollary 3.3); this is a defensive
-            # guard against an infinite loop, not expected to trigger.
-            break
+            # augmenting path in H (Corollary 3.3); this should be
+            # unreachable. Raising (rather than silently breaking) matters
+            # because a silent break would return a matching that is not
+            # maximum, with no indication that anything went wrong.
+            raise nx.NetworkXAlgorithmError(
+                "max_cardinality_matching_gabow: phase 1 found an "
+                "augmenting path but phase 2 found none in H, which "
+                "should be impossible (Corollary 3.3). This indicates a "
+                "bug in the algorithm, not a problem with the input "
+                "graph; the matching computed so far would not be "
+                "maximum."
+            )
 
     return matching_dict_to_set(mate)

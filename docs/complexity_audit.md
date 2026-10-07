@@ -319,31 +319,65 @@ n=6–40, several densities, ascending/descending/random node insertion
 order, greedy on/off), `max_cardinality_matching_gabow` returned a matching
 one edge smaller than `max_weight_matching(maxcardinality=True)`'s.
 
-**Root cause.** `scan_edge` inserts a bucket entry `(z, u)` at a _predicted_
-future `Delta` computed from `d(z)` and `d(u)` _at scan time_. If `u` is
-`UNLABELED` when scanned but later transitions `UNLABELED` → `ODD` → `EVEN`
-(absorbed into a different blossom) before that entry is popped, the
-prediction is stale: `d(u)` now follows the `EVEN` formula instead of the
-`UNLABELED` constant the entry assumed, so `d(x) + d(y) == 0` (tightness)
-no longer holds even though `label[by] == "EVEN"` by the time it's popped.
-The code previously treated every popped entry with `label[by] == "EVEN"`
-as a real blossom-step/augmenting-path candidate with no recheck, so a
-stale entry could cause a spurious augmenting-path detection, which (via
-the `gained == 0` guard in the outer loop) stopped the algorithm one
-augmentation early.
+**Root cause, as understood at the time of the fix.** `scan_edge` inserts
+a bucket entry `(z, u)` at a _predicted_ future `Delta` computed from
+`d(z)` and `d(u)` _at scan time_. If `u` is `UNLABELED` when scanned but
+later transitions `UNLABELED` → `ODD` → `EVEN` (absorbed into a different
+blossom) before that entry is popped, the prediction is stale: `d(u)` now
+follows the `EVEN` formula instead of the `UNLABELED` constant the entry
+assumed, so `d(x) + d(y) == 0` (tightness) no longer holds even though
+`label[by] == "EVEN"` by the time it's popped. The code previously treated
+every popped entry with `label[by] == "EVEN"` as a real
+blossom-step/augmenting-path candidate with no recheck, so a stale entry
+could cause a spurious augmenting-path detection, which (via the
+`gained == 0` guard in the outer loop) stopped the algorithm one
+augmentation early. The fix added a tightness recheck, `d(x) + d(y) == 0`,
+gating the `EVEN` branch, citing `GabowRevised.h`'s equivalent
+`lcp[x] + lcp[y] == 2 * Delta - 2` guard and calling the omission a
+"translation miss" in the port.
 
-The companion-page C++ reference (`GabowRevised.h`) already guards exactly
-this branch with a tightness recheck — `if ((label[base(y)] == EVEN) &&
-(lcp[x] + lcp[y] == 2 * Delta - 2))` — and does nothing (silently drops the
-entry) when it fails; it does **not** recheck the sibling grow-step
-(`UNLABELED`) branch. This was a **translation miss** in the original
-port, not a deliberate difference: our `d(v)` helper is the pre-existing
-equivalent of the reference's `lcp`, already used for exactly this
-tightness test at H's construction (the `d(u) + d(v) == w_e` check). The
-fix adds the same test, `d(x) + d(y) == 0`, as the condition gating the
-existing `EVEN` branch, with no `else` action (entry silently dropped) —
-mirroring the reference exactly. The grow-step branch is provably
-unaffected: `EVEN` is permanent for the rest of a search once assigned,
+**Superseded by Task B.** A later, dedicated investigation (Task B;
+summarized here, full detail in `docs/cpp_provenance.md`) settled the
+attribution differently, with decisive evidence: the actual port source,
+`GabowBeautified.h` (confirmed content-identical to the originally-provided
+`max_matching_c_2plus.cpp`), **does not have this recheck either** — its
+EVEN branch is structurally identical to our pre-fix code, with no
+tightness check anywhere. `GabowRevised.h` is a separate, later
+reformulation (`lcp`/`lcp_odd` instead of `bd`/`bDelta`); its recheck is
+not something our port's actual source ever had and omitted.
+
+The real, confirmed translation error is that our `_BucketQueue` pops
+LIFO (`self.buckets[d].pop()`, same end as `insert`'s `.append()`) where
+the reference's `simple_queue` pops FIFO (LEDA's `list::pop()` removes the
+**first** element; `insert` appends at the back). Dynamic evidence: with
+the compiled, unmodified `GabowBeautified.h` (FIFO, as shipped) and our
+own initial matchings/node orders, **0 of 232,195** test cases failed,
+including all 52 originally-failing cases and a further 226,143-case
+sweep (random graphs n=6–60, several densities, 3 node orders, 3 initial-
+matching strategies, plus windmill/chained-triangle/nested-blossom/
+bad-greedy families) run against a FIFO-only patch of the pre-fix Python
+(recheck still absent). Forcing only the C++ bucket to LIFO (isolated from
+every other list in the class) reproduced the original bug exactly,
+including on the minimal 10-node example. A full faithful-order
+cross-check (bucket FIFO, `T`/`tmp` prepended, Phase 2 root order matching
+`T`'s scan order — see `docs/cpp_provenance.md` for the complete list, incl.
+one previously-undocumented divergence found while building this
+cross-check) against the compiled reference, with the recheck kept, found
+**6,314 of 6,320 cases** (52 known + 6,000-graph battery + small F3/F4/F5
+instances, two initial matchings each) identical edge-for-edge, with 100%
+agreement on matching size, iteration count, and augmentations per
+iteration in every single case; the remaining 6 differ only in _which_
+same-size maximum matching comes back.
+
+**Conclusion.** The recheck fix is correct, necessary given the port's
+actual (LIFO) queue, and is kept — restoring FIFO order is a separate fix,
+applied afterward (see the FIFO-fix commit and `docs/cpp_provenance.md`).
+Whether the recheck is also necessary once the queue is FIFO remains
+formally open (232,195 cases found no counterexample, but neither
+Mehlhorn & Nobahari nor ADM24 state an invariant that rules one out for
+this specific, `bd`/`bDelta`-based formulation — see
+`docs/cpp_provenance.md`). The grow-step branch is provably unaffected
+either way: `EVEN` is permanent for the rest of a search once assigned,
 and `d(v) == 1` unconditionally while `v` stays `UNLABELED`, so neither
 side of a still-`UNLABELED` entry can have drifted since it was scanned
 (proved in the code comment at the fix site).
@@ -372,6 +406,15 @@ The per-iteration bound therefore remains O(m·α(n)) exactly as audited in
 anything about the √n iteration-count argument, which is independent of
 this fix). See `benchmarks/run_all.py`'s Stage B re-run (before vs. after)
 for the empirical counterpart of this argument.
+
+**The separate FIFO fix** (`_BucketQueue`: `list`/`.pop()` → `deque`/
+`.popleft()`, both O(1), see `docs/cpp_provenance.md`) was verified the
+same way: static argument (only which end is dequeued changes; insert and
+pop both stay O(1)), op counts before/after on F1/F2/F5 (same matching
+size every time; other counters shift by <5%, consistent with finding a
+different but equally-short augmenting path, not more work), identical
+sizes on 2,452 graphs including all 52 known cases, and F5's edge-scan-
+start iteration counts (69/97/139 at n_param 5000/10000/20000) unchanged.
 
 ---
 
