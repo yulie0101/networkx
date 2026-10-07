@@ -1482,7 +1482,7 @@ def max_cardinality_matching_gabow(
 
         def __init__(self, size):
             self.size = size
-            self.buckets = [[] for _ in range(size)]
+            self.buckets = [deque() for _ in range(size)]
 
         def insert(self, edge, d):
             if d < self.size:
@@ -1491,7 +1491,7 @@ def max_cardinality_matching_gabow(
         def pop(self, d):
             if d >= self.size or not self.buckets[d]:
                 return None
-            return self.buckets[d].pop()
+            return self.buckets[d].popleft()
 
     def phase1():
         """One search of Edmonds' algorithm (paper Sec. 3, Fig. 2)
