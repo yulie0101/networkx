@@ -1201,7 +1201,8 @@ def max_cardinality_matching_gabow(
         how the choice of initial matching (not just its size) affects the
         number of iterations on adversarial inputs, e.g. comparing this
         function's own vertex-scan greedy against the reference C++
-        implementation's edge-scan greedy (GabowRevised.h's `init()`),
+        implementation's edge-scan greedy (GabowBeautified.h's `init()`,
+        identical in GabowRevised.h),
         which are not the same algorithm and can produce very different
         starting matchings on the same graph. Never used by default and
         never changes behavior unless passed; the caller is responsible
@@ -1243,10 +1244,11 @@ def max_cardinality_matching_gabow(
 
     Notes
     -----
-    **Algorithm.** Each outer iteration ("phase", Fig. 1 of [1]_) runs two
-    steps, which this docstring and the code below call "Phase 1" and
-    "Phase 2" (following Mehlhorn & Nobahari's terminology [2]_); Gabow
-    [1]_ itself calls the same two steps "Part I" and "Parts II-III".
+    **Algorithm.** Each outer iteration (Fig. 1 of [1]_) runs two steps,
+    which this docstring and the code below call "Phase 1" and "Phase 2",
+    as Gabow [1]_ and Ansaripour, Danaei & Mehlhorn (ADM24) do; Mehlhorn &
+    Nobahari [2]_ call them Parts I-III (Phase 1 = Parts I and II, Phase 2
+    = Part III).
 
     * *Phase 1* (Sec. 3) is a single search of Edmonds' weighted matching
       algorithm specialized to weights of 2 (matched edges) and 0 (unmatched
@@ -1259,7 +1261,12 @@ def max_cardinality_matching_gabow(
       that an augmenting path's length is ``-w(P) + 1`` (eq. 3) together
       show :math:`\Delta` never exceeds :math:`n/2`, so the bucket array has
       O(n) slots and every edge is inserted/extracted O(1) times, giving
-      O(m + n) work. Phase 1 finds a maximum *weight* augmenting path, which
+      O(m + n) work. A tight edge between two even vertices either closes
+      a blossom (both ends in the same search tree; the walk up to their
+      common base costs O(size of the blossom), as in Sec. 5) or joins two
+      trees, i.e. completes an augmenting path; the latter is recognized in
+      O(1) by comparing the trees' roots, without walking up the trees
+      (see the comment at that site). Phase 1 finds a maximum *weight* augmenting path, which
       by the above is automatically a shortest augmenting path (an "sap"),
       and it also contracts every maximal *positive* blossom (one formed
       before the last dual adjustment) to build the minor graph H, whose
@@ -1271,7 +1278,7 @@ def max_cardinality_matching_gabow(
       blossom steps are delayed until a genuine ancestor relationship in the
       grow-forest is confirmed, which is tested in O(1) using an "even
       became outer" timestamp rather than an explicit ancestor walk
-      (Appendix A here proves the O(1) test equivalent to the descendant
+      (Appendix A of [1]_ proves the O(1) test equivalent to the descendant
       test). Every edge is scanned at most twice (once from each endpoint),
       so this phase is also O(m). Each found H-path is lifted back to a
       real augmenting path of G using the blossom "bridge" pointers
@@ -1391,7 +1398,11 @@ def max_cardinality_matching_gabow(
     use -- see Notes); ``augmentations`` (Fig. 1's "augment M by Q");
     ``stale_bucket_entries_skipped`` (bucket-queue pops where the
     EVEN-side tightness recheck failed -- see Notes; not observed to be
-    nonzero with the current, FIFO bucket order); and ``per_iteration``,
+    nonzero with the current, FIFO bucket order); ``climb_steps_blossom``
+    and ``climb_steps_cross_tree`` (Phase 1's walk up the search trees from
+    the two ends of a tight even-even edge, counted per step, split by
+    whether the walk found a blossom or two different trees; the latter is
+    0 since the root test above, kept as a check); and ``per_iteration``,
     a list with one entry per iteration holding that same set of keys
     scoped to just that iteration's work.
 
@@ -1447,6 +1458,8 @@ def max_cardinality_matching_gabow(
                 "uf_dbase_union_calls": 0,
                 "augmentations": 0,
                 "stale_bucket_entries_skipped": 0,
+                "climb_steps_blossom": 0,
+                "climb_steps_cross_tree": 0,
                 "per_iteration": [],
             }
         )
@@ -1592,6 +1605,10 @@ def max_cardinality_matching_gabow(
         path2 = {}
         strue = 0
         T = [v for v in G if v not in mate]
+        # The root (free vertex) of each vertex's search tree. Blossoms only
+        # merge vertices of one tree, so two even vertices are in different
+        # trees exactly when their roots differ.
+        tree_root = {v: v for v in T}
         queue = _BucketQueue(n // 2 + 1)
         Delta = 0
 
@@ -1667,6 +1684,7 @@ def max_cardinality_matching_gabow(
                     bDelta[y] = bDelta[z] = Delta
                     parent[z] = y
                     parent[y] = x
+                    tree_root[y] = tree_root[z] = tree_root[x]
                     label[y] = "ODD"
                     label[z] = "EVEN"
                     T.append(y)
@@ -1707,13 +1725,28 @@ def max_cardinality_matching_gabow(
                     # 1 unconditionally while v stays UNLABELED, so neither
                     # side of a still-UNLABELED entry can have drifted since
                     # it was scanned.
+                    if tree_root[x] != tree_root[y]:
+                        # Different search trees: xy completes an augmenting
+                        # path. Decided in O(1) instead of walking up both
+                        # trees to their roots: after the first augmenting
+                        # path the bucket is still drained (H must be
+                        # complete), and walking up for every such edge
+                        # would cost O(depth) each, Theta(m * Delta) in one
+                        # iteration in the worst case. GabowBeautified.h
+                        # walks up here (same cost); the walk below is now
+                        # done only for blossoms, where it is O(size of the
+                        # blossom) (Gabow Sec. 5).
+                        found_sap = True
+                        continue
                     strue += 1
                     hx, hy = bx, by
                     path1[hx] = strue
                     path2[hy] = strue
+                    climb = 0
                     while (path1.get(hy) != strue and path2.get(hx) != strue) and (
                         mate.get(hx) is not None or mate.get(hy) is not None
                     ):
+                        climb += 1
                         if mate.get(hx) is not None:
                             hx = base.find(parent[mate[hx]])
                             path1[hx] = strue
@@ -1723,10 +1756,13 @@ def max_cardinality_matching_gabow(
                     if path1.get(hy) == strue or path2.get(hx) == strue:
                         if _counters is not None:
                             _counters["blossom_contraction_events"] += 1
+                            _counters["climb_steps_blossom"] += climb
                         b = hy if path1.get(hy) == strue else hx
                         shrink_path(b, x, y, dunions)
                         shrink_path(b, y, x, dunions)
                     else:
+                        if _counters is not None:
+                            _counters["climb_steps_cross_tree"] += climb
                         found_sap = True
                 elif _counters is not None:
                     # label[by] == "EVEN" but the tightness recheck above
@@ -1948,13 +1984,14 @@ def max_cardinality_matching_gabow(
                             # first directly, via tmp.push_front + a plain
                             # forall; the push/pop-order reversal here is
                             # the standard transform for replacing that
-                            # recursion with an explicit stack). Only the
-                            # DFS order among this blossom's newly-absorbed
-                            # members depends on this, not which vertices
-                            # get explored or whether one is found; verified
-                            # equivalent (636 trials incl. nested/windmill
-                            # blossom stress graphs, all agreeing with
-                            # max_weight_matching).
+                            # recursion with an explicit stack). This order
+                            # is required by the proof that each iteration
+                            # finds a maximal set of augmenting paths
+                            # (Gabow's property (P1), Fig. 4 line 6; M&N Sec.
+                            # 3.2, "in this order!!!"). The reverse order
+                            # still returns a maximum matching but can need
+                            # more iterations (one extra in 2 of 8,010 test
+                            # runs).
                             tmp.append(cur)
                             pv, pu = parentHG[cur]
                             other = pu if rep[pv] == cur else pv

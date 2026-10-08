@@ -1181,6 +1181,8 @@ class TestMaxCardinalityMatchingGabow:
         "uf_dbase_union_calls",
         "augmentations",
         "stale_bucket_entries_skipped",
+        "climb_steps_blossom",
+        "climb_steps_cross_tree",
         "per_iteration",
     }
 
@@ -2180,6 +2182,67 @@ class TestMaxCardinalityMatchingGabow:
         m = max(n - 1, int(rng.choice([0.1, 0.3, 0.6]) * max_m))
         G = self._ordered_gnm(n, m, seed, order)
         self._assert_no_stale_entries(G, greedy)
+
+    # -- Phase 1 climb: O(1) different-tree test ------------------------------
+
+    @staticmethod
+    def _broom(L, k):
+        """Two "brooms": from each free root a matched path of length 2L ends
+        in an even vertex with k pendant matched edges; K_{k,k} joins the
+        leaves of the two brooms. Returns (G, starting matching)."""
+        G = nx.Graph()
+        M = {}
+
+        def tree(tag):
+            prev = (tag, "r")
+            for j in range(L):
+                o, e = (tag, "o", j), (tag, "e", j)
+                G.add_edge(prev, o)
+                G.add_edge(o, e)
+                M[o], M[e] = e, o
+                prev = e
+            leaves = []
+            for j in range(k):
+                a, b = (tag, "a", j), (tag, "b", j)
+                G.add_edge(prev, a)
+                G.add_edge(a, b)
+                M[a], M[b] = b, a
+                leaves.append(b)
+            return leaves
+
+        A, B = tree("A"), tree("B")
+        G.add_edges_from((x, y) for x in A for y in B)
+        return G, M
+
+    @pytest.mark.parametrize("L", [10, 20, 40])
+    def test_broom_no_cross_tree_climb(self, L):
+        """After the first augmenting path, Phase 1 keeps draining the
+        bucket; on this family that pops Theta(k^2) tight edges between the
+        two search trees, each Theta(L) deep. Walking up both trees for
+        each of them cost Theta(m * L) steps in one iteration (and does in
+        GabowBeautified.h). Different trees are now recognized in O(1): no
+        cross-tree climb steps, and the blossom climb stays within m."""
+        G, M = self._broom(L, L)
+        counters = {}
+        got = nx.max_cardinality_matching_gabow(
+            G, _counters=counters, _skip_greedy_init=True, _initial_mate=M
+        )
+        assert nx.is_matching(G, got)
+        assert len(got) == len(nx.max_weight_matching(G, maxcardinality=True))
+        assert counters["climb_steps_cross_tree"] == 0
+        assert counters["climb_steps_blossom"] <= G.number_of_edges()
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_blossom_climb_at_most_n_per_iteration(self, seed):
+        """Each blossom climb takes at most as many steps as blossoms it
+        merges, and a search merges at most n - 1 times, so the blossom
+        climb costs at most n steps per iteration; no cross-tree climb."""
+        G = nx.gnm_random_graph(60, 150, seed=seed)
+        counters = {}
+        nx.max_cardinality_matching_gabow(G, _counters=counters, _skip_greedy_init=True)
+        assert counters["climb_steps_cross_tree"] == 0
+        for entry in counters["per_iteration"]:
+            assert entry["climb_steps_blossom"] <= G.number_of_nodes()
 
     def test_part1_augmenting_path_length_strictly_increases(self):
         """Hopcroft-Karp lemma: across the successful iterations of one
