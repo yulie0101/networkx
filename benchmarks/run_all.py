@@ -179,6 +179,8 @@ STAGEB_FIELDS = [
     "blossom_contraction_events",
     "uf_find_calls",
     "augmentations",
+    "climb_steps_blossom",
+    "climb_steps_cross_tree",
 ]
 
 
@@ -217,6 +219,8 @@ def _measure_stageB(G, family, n_label, seed, greedy_init, _initial_mate=None):
         "uf_find_calls": counters["uf_base_find_calls"]
         + counters["uf_dbase_find_calls"],
         "augmentations": counters["augmentations"],
+        "climb_steps_blossom": counters["climb_steps_blossom"],
+        "climb_steps_cross_tree": counters["climb_steps_cross_tree"],
     }
 
 
@@ -2812,12 +2816,33 @@ def main(argv=None):
         "in the CSV), using --full's sizes, then regenerate plots/"
         "SUMMARY.md.",
     )
+    p.add_argument(
+        "--stage-b",
+        action="store_true",
+        help="Run ONLY the Stage B operation counts (stageB_raw.csv, "
+        "resumable) and the F5 edge-scan counts at --full's sizes, then "
+        "regenerate plots/SUMMARY.md. Delete stageB_raw.csv first to "
+        "recount everything (e.g. after adding a counter).",
+    )
     args = p.parse_args(argv)
 
-    if args.stable_check or args.f5_edgescan or args.hard_families:
+    if args.stable_check or args.f5_edgescan or args.hard_families or args.stage_b:
         env_info = _env_info()
         print("Environment:", env_info)
         t0 = time.perf_counter()
+        if args.stage_b:
+            run_stage_b(
+                {
+                    "F1": [1000, 5000, 20000, 100000],
+                    "F2": [50, 100, 200, 400, 800],
+                    "F3": [50, 200, 800, 1600],
+                    "F4": [11, 41, 161, 321],
+                    "F5": [10000, 20000, 40000],
+                    "F6": [1000, 10000, 100000],
+                },
+                n_seeds=5,
+            )
+            run_f5_edgescan()
         if args.stable_check:
             run_f1_stable_check()
         if args.f5_edgescan:

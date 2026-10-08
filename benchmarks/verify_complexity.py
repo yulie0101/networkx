@@ -50,6 +50,10 @@ OP_KEYS = [
     "uf_base_union_calls",
     "uf_dbase_union_calls",
     "augmentations",
+    # Phase 1's walk up the search trees (blossom / different trees); not
+    # counted before the O(1) different-tree test was added.
+    "climb_steps_blossom",
+    "climb_steps_cross_tree",
 ]
 UF_KEYS = [
     "uf_base_find_hops",
