@@ -998,21 +998,20 @@ def load_stable_check_csv(name="stageC_stable_check.csv"):
 
 
 def _stable_check_table(stable_rows):
-    """Median and min/max per (c, seed, algorithm/mode), plus the per-c
-    speedup (edmonds median / gabow greedy-OFF median), from an isolated
-    run_f1_stable_check() collection.
+    """Per (c, seed): Edmonds, Gabow greedy-OFF and greedy-ON medians and the
+    two speedups (Edmonds median / Gabow median), from an isolated
+    run_f1_stable_check() collection; then the overall range of the
+    greedy-OFF speedup.
     """
     if not stable_rows:
         return []
-    out = []
-    cs = sorted({r["c"] for r in stable_rows})
-    out.append(
-        "| c | seed | edmonds median (min-max) | gabow greedy_ON median (min-max) | gabow greedy_OFF median (min-max) | speedup (edmonds/gabow_OFF) |"
-    )
-    out.append("|---|---|---|---|---|---|")
-    for c in cs:
-        seeds = sorted({r["seed"] for r in stable_rows if r["c"] == c})
-        for seed in seeds:
+    out = [
+        "| c | seed | Edmonds median (s) | Gabow OFF median (s) | Gabow ON median (s) | speedup OFF | speedup ON |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    speedups_off, speedups_on = [], []
+    for c in sorted({r["c"] for r in stable_rows}):
+        for seed in sorted({r["seed"] for r in stable_rows if r["c"] == c}):
             sub = [r for r in stable_rows if r["c"] == c and r["seed"] == seed]
             e = [r["runtime_sec"] for r in sub if r["algorithm"] == "edmonds"]
             g_on = [
@@ -1027,31 +1026,26 @@ def _stable_check_table(stable_rows):
             ]
             if not (e and g_on and g_off):
                 continue
-            me, mon, moff = (
+            me, moff, mon = (
                 statistics.median(e),
-                statistics.median(g_on),
                 statistics.median(g_off),
+                statistics.median(g_on),
             )
+            speedups_off.append(me / moff)
+            speedups_on.append(me / mon)
             out.append(
-                f"| {c} | {seed} | {me:.4g}s ({min(e):.4g}-{max(e):.4g}) | "
-                f"{mon:.4g}s ({min(g_on):.4g}-{max(g_on):.4g}) | "
-                f"{moff:.4g}s ({min(g_off):.4g}-{max(g_off):.4g}) | {me / moff:.2f}x |"
+                f"| {c} | {seed} | {me:.4g} | {moff:.4g} | {mon:.4g} | "
+                f"{me / moff:.1f}x | {me / mon:.1f}x |"
             )
-    out.append(
-        "\nPer-c speedup, pooling all measured seeds (edmonds median / gabow greedy-OFF median):\n"
-    )
-    for c in cs:
-        sub = [r for r in stable_rows if r["c"] == c]
-        e = [r["runtime_sec"] for r in sub if r["algorithm"] == "edmonds"]
-        g_off = [
-            r["runtime_sec"]
-            for r in sub
-            if r["algorithm"] == "gabow" and r["greedy_init"] is False
-        ]
-        if not (e and g_off):
-            continue
+    if speedups_off:
         out.append(
-            f"- c={c}: edmonds median={statistics.median(e):.4g}s, gabow greedy_OFF median={statistics.median(g_off):.4g}s, speedup={statistics.median(e) / statistics.median(g_off):.2f}x"
+            f"\nOverall range: greedy-OFF speedup {min(speedups_off):.1f}x-"
+            f"{max(speedups_off):.1f}x, greedy-ON speedup "
+            f"{min(speedups_on):.1f}x-{max(speedups_on):.1f}x (each Edmonds "
+            f"median over {STABLE_CHECK_EDMONDS_REPEATS} runs, each Gabow median "
+            f"over {STABLE_CHECK_GABOW_REPEATS} runs). The same check on the "
+            "earlier code (LIFO bucket queue, before the FIFO fix) gave a "
+            "greedy-OFF speedup of about 12x-44x (docs/HANDOFF.md).\n"
         )
     return out
 
@@ -1652,6 +1646,21 @@ def plot_p8_hard_families(hard_rows, outpath):
                     label=label,
                     markersize=6,
                 )
+                for x, y in zip(pts, meds):
+                    if any(
+                        r.get("idle_rerun")
+                        for r in sub
+                        if r["n"] == x
+                        and r["algorithm"] == algo
+                        and r["variant"] == variant
+                    ):
+                        ax.annotate(
+                            "idle re-run",
+                            (x, y),
+                            textcoords="offset points",
+                            xytext=(-60, 8),
+                            fontsize=7,
+                        )
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("n (actual vertex count)")
@@ -2148,7 +2157,8 @@ def write_summary(
     if stable_rows:
         lines.append(
             "Run via `run_f1_stable_check()` in a dedicated, freshly-started "
-            f"Python process with nothing else running on the machine, at "
+            f"Python process (no other benchmark running), on the final code "
+            f"(FIFO bucket queue), at "
             f"n={STABLE_CHECK_N} (smaller than the n=20000 points above "
             "specifically so Edmonds is cheap enough to repeat for real): "
             f"edmonds x{STABLE_CHECK_EDMONDS_REPEATS}, gabow (both greedy "
@@ -2161,12 +2171,10 @@ def write_summary(
         )
         lines.extend(_stable_check_table(stable_rows))
         lines.append(
-            "\nCompare to the single-sample ~140x figure implied by the "
-            "n=20000 points above (e.g. c=3: edmonds=258.5s / gabow "
-            "greedy_OFF~1.0-1.1s there) -- the stable n=10000 numbers give "
-            "the actual order of magnitude of the speedup with real "
-            "min/max spread, without relying on a single noisy multi-"
-            "minute call.\n"
+            "\nCompare to the single-sample n=20000 points above (e.g. c=3: "
+            "edmonds=258.5s in one call): the n=10000 numbers here are "
+            "medians of repeated runs and give the order of magnitude of the "
+            "speedup without relying on a single noisy multi-minute call.\n"
         )
     else:
         lines.append(
@@ -2432,12 +2440,17 @@ def write_summary(
             f"{HARD_EDMONDS_TIMEOUT_SEC:.0f}s it is disabled for larger n in that "
             "family (`k` = number of Edmonds samples; k=1 points are single, "
             "noisy measurements). F5's `edgescan` variant starts from the C++ "
-            "reference's edge-scan greedy in true insertion order (same as P10).\n"
+            "reference's edge-scan greedy in true insertion order (same as P10). "
+            "Rows marked `idle re-run` come from a separate re-measurement "
+            f"({F5_IDLE_RERUN_CSV}) in one process with no other benchmark "
+            "running, which replaces the original edge-scan and Edmonds "
+            "timings at that size (taken while other work was running, with a "
+            "single Edmonds sample).\n"
         )
         lines.append(
-            "| family | n (vertices) | n_param | variant | iterations | gabow (s) | edmonds (s) | k | speedup |"
+            "| family | n (vertices) | n_param | variant | iterations | gabow (s) | edmonds (s) | k | speedup | note |"
         )
-        lines.append("|---|---|---|---|---|---|---|---|---|")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
         for fam, n in sorted({(r["family"], r["n"]) for r in hard_rows}):
             sub = [r for r in hard_rows if r["family"] == fam and r["n"] == n]
             e = [r["runtime_sec"] for r in sub if r["algorithm"] == "edmonds"]
@@ -2452,6 +2465,16 @@ def write_summary(
                     continue
                 g_med = statistics.median(r["runtime_sec"] for r in g)
                 it = statistics.median(r["iterations"] for r in g)
+                g_idle = any(r.get("idle_rerun") for r in g)
+                e_idle = any(
+                    r.get("idle_rerun") for r in sub if r["algorithm"] == "edmonds"
+                )
+                if g_idle:
+                    note = f"idle re-run ({len(g)} Gabow / {len(e)} Edmonds runs)"
+                elif e_idle:
+                    note = f"Edmonds from idle re-run ({len(e)} runs)"
+                else:
+                    note = ""
                 lines.append(
                     f"| {fam} | {n} | {g[0]['n_param']} | {variant} | {it:g} | {g_med:.4g} | "
                     + (
@@ -2459,6 +2482,7 @@ def write_summary(
                         if e
                         else "-- | 0 | -- |"
                     )
+                    + f" {note} |"
                 )
         lines.append("")
     else:
@@ -2678,6 +2702,7 @@ def _regenerate_plots_and_summary(
 ):
     f5_edgescan_rows = f5_edgescan_rows or []
     hard_rows = hard_rows if hard_rows is not None else _load_hard_rows()
+    hard_rows = _apply_f5_idle_rerun(hard_rows)
     # Folded into the general stageb_rows used by P1/P2/P3/P7 so the new
     # F5_chains_edgescan family shows up there too (more data, same plots);
     # P10 below is specific to it.
@@ -2750,6 +2775,61 @@ def _load_supplementary_rows():
     )
     f5_edgescan_rows = load_f5_edgescan_csv() or None
     return stable_rows, f5_edgescan_rows
+
+
+# F5 edge-scan points whose hard-families timings are replaced by the separate
+# idle re-run (results/f5_idle_remeasure.csv: Gabow edge-scan x5, Edmonds x3,
+# one process, no other benchmark running). The --hard-families timings at
+# this size were taken while other work was running (Gabow 62-204s on
+# identical work) and had a single Edmonds sample.
+F5_IDLE_RERUN_NPARAMS = (20000,)
+F5_IDLE_RERUN_CSV = "f5_idle_remeasure.csv"
+
+
+def _apply_f5_idle_rerun(hard_rows):
+    """Replace the hard-families F5 edge-scan Gabow rows and the Edmonds rows
+    at F5_IDLE_RERUN_NPARAMS with the idle re-run's rows (marked
+    `idle_rerun=True`). Returns hard_rows unchanged if the CSV is absent.
+    """
+    path = OUTDIR / F5_IDLE_RERUN_CSV
+    if not path.exists():
+        return hard_rows
+    with open(path, newline="") as f:
+        idle = [
+            r for r in csv.DictReader(f) if int(r["n_param"]) in F5_IDLE_RERUN_NPARAMS
+        ]
+    if not idle:
+        return hard_rows
+    family = "F5_chains_edgescan_hard"
+    replaced = {(int(r["n_param"]), r["algorithm"]) for r in idle}
+
+    def is_replaced(r):
+        if r["family"] != family:
+            return False
+        if r["algorithm"] == "gabow" and r["variant"] == "edgescan":
+            return (r["n_param"], "gabow_edgescan") in replaced
+        if r["algorithm"] == "edmonds":
+            return (r["n_param"], "edmonds") in replaced
+        return False
+
+    out = [r for r in hard_rows if not is_replaced(r)]
+    for r in idle:
+        algo = "gabow" if r["algorithm"] == "gabow_edgescan" else "edmonds"
+        out.append(
+            {
+                "family": family,
+                "n": int(r["n"]),
+                "n_param": int(r["n_param"]),
+                "m": int(r["m"]),
+                "seed": int(r["rep"]),
+                "algorithm": algo,
+                "variant": "edgescan" if algo == "gabow" else "none",
+                "runtime_sec": float(r["runtime_sec"]),
+                "iterations": int(r["iterations"]) if r["iterations"] else None,
+                "idle_rerun": True,
+            }
+        )
+    return out
 
 
 def _load_hard_rows():
