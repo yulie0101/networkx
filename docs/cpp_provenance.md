@@ -84,28 +84,39 @@ the guard present in the later `GabowRevised.h`
 (`lcp[x] + lcp[y] == 2*Delta - 2`), whose bridge-step is defined as "while
 there exists a tight even-even edge" -- a live recheck by construction.
 
-### 2.3 Tie-breaks only: `T`, `tmp`, and Phase 2's root order
+### 2.3 Tie-breaks only: `T` and Phase 2's root order
 
 - `T` (the search-structure list): this port appends where
   `GabowBeautified.h` prepends (`T.push`).
-- `tmp` (Phase 2's blossom-absorption list): this port appends where
-  `GabowBeautified.h` prepends (`tmp.push_front`).
 - Phase 2's root-selection loop: this port iterates
   `contracted_into`'s keys in first-occurrence-while-building order;
   `GabowBeautified.h` scans `T` directly, filtered to self-reps
-  (`forall(vh, T) { if (vh != rep[vh]) continue; ...}`). This third one
-  was found only while building the faithful-order cross-check below, not
+  (`forall(vh, T) { if (vh != rep[vh]) continue; ...}`). This one was
+  found only while building the faithful-order cross-check below, not
   during the original port or during the main Task B investigation.
 
-A **faithful-order cross-check** -- a scratch copy of this port with all
-three of the above changed to match `GabowBeautified.h` exactly, run
-against the compiled, unmodified (except making its members public, for
-test-harness access) reference C++ on identical inputs (the 52 originally
+**Not a deviation: `tmp`** (Phase 2's blossom-absorption list). This port
+appends where `GabowBeautified.h` prepends (`tmp.push_front`), but the
+reference then explores `tmp` by recursion (`forall(zh, tmp)
+find_apHG(zh)`, commented "the new even node closest to bh comes first")
+while this port pushes `tmp` onto an explicit LIFO stack. Appending plus
+the stack's reversal gives the same order as prepending plus recursion:
+both explore u_1, the vertex closest to the blossom base, first, as
+Gabow's Fig. 4 line 6 prescribes. Run traces confirm it (blossom steps
+absorbing at least 2 vertices on 3,000 random graphs: this port u_1 first
+in 114/114, the compiled reference u_1 first in 55/55).
+
+A **faithful-order cross-check** -- a scratch copy of this port with the
+two orders above changed to match `GabowBeautified.h`, run against the
+compiled, unmodified (except making its members public, for test-harness
+access) reference C++ on identical inputs (the 52 originally
 known-failing cases, a 6,000-graph battery, and small F3/F4/F5 instances,
-with two initial matchings each) -- found **6,314 of 6,320 cases**
-identical edge-for-edge, with 100% agreement (6,320/6,320) on matching
-size, iteration count, and augmentations per iteration in every case. The
-remaining 6 differ only in _which_ same-size maximum matching comes back.
+with two initial matchings each) -- found **all 6,320 cases identical**
+edge-for-edge, in iteration count, and in augmentations per iteration.
+An earlier version of this cross-check also changed `tmp` to prepend,
+which (because of the stack) reversed its order relative to the
+reference, and found 6,314 of 6,320 identical; those 6 differences were
+caused by that reversal and disappear without it.
 
 ### 2.4 Checked, not the cause: `bd`/`bDelta` initialization
 
@@ -119,13 +130,14 @@ compiled shim's `node_array<int>` default -- a vertex untouched since the
 start of the whole run reads 0, not 1 (real LEDA's default was not
 independently verified).
 
-Checked (scratch only, not applied to this port): forcing the faithful-
-order cross-check copy to also persist `bd`/`bDelta`/`parent`/
-`source_bridge`/`target_bridge` across iterations, and separately forcing
-the untouched-vertex default to 0, each left the exact same 6/6,320 cases
-differing (§2.3) -- neither change explains those 6 cases, and this
-difference is recorded here as disclosed and checked, not as a
-demonstrated cause of anything.
+The faithful-order cross-check (§2.3) is identical on all 6,320 cases
+without changing this, so the per-iteration reset makes no observable
+difference there. (Earlier, with the older cross-check's reversed `tmp`,
+forcing the copy to persist `bd`/`bDelta`/`parent`/`source_bridge`/
+`target_bridge` across iterations, or to default untouched vertices to 0,
+did not change its 6 differing cases either; those were later traced to
+the `tmp` reversal, see §2.3.) This difference is recorded here as
+disclosed and checked, not as a cause of anything.
 
 ### 2.5 Kept: the `gained == 0` guard now raises
 

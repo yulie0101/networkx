@@ -1331,21 +1331,23 @@ def max_cardinality_matching_gabow(
       already prevents the one known failure mode from arising; the
       recheck is kept regardless, as a correctness guarantee that does not
       depend on that empirical observation.
-    * *Bucket-queue order, `T`/`tmp`/root order.* The Delta-bucket queue is
+    * *Bucket-queue order, `T`/root order.* The Delta-bucket queue is
       FIFO, matching the reference's LEDA ``list`` (``append`` + ``pop``,
       which removes the *first* element). `T` is appended to where the
-      reference prepends (``push``); the Phase 2 blossom-absorption list
-      (``tmp``) is appended to where the reference prepends
-      (``push_front``); Phase 2's root-selection order scans
-      ``contracted_into``'s keys in first-occurrence order where the
-      reference scans `T` directly. All three are tie-breaks only: a
+      reference prepends (``push``), and Phase 2's root-selection order
+      scans ``contracted_into``'s keys in first-occurrence order where the
+      reference scans `T` directly. Both are tie-breaks only: a
       faithful-order cross-check against the compiled reference (6,320
       cases: the 52 known cases, a 6,000-graph battery, and small
-      adversarial instances, two initial matchings each) found
-      6,314/6,320 identical edge-for-edge, with 100% agreement on matching
-      size, iteration count, and augmentations per iteration; the
-      remaining 6 differ only in *which* same-size maximum matching is
-      returned.
+      adversarial instances, two initial matchings each), with these two
+      orders changed to the reference's, found all 6,320 identical
+      edge-for-edge, in iteration count, and in augmentations per
+      iteration. The Phase 2 blossom-absorption list (``tmp``) is *not* a
+      difference: it is appended to where the reference prepends
+      (``push_front``), but the reference explores it by recursion and
+      this function by an explicit LIFO stack, so both explore u_1 (the
+      vertex closest to the blossom base) first, as Gabow's Fig. 4
+      prescribes (see the comment at that site).
     * *Dual-value (`bd`/`bDelta`) initialization.* This function resets
       ``bd``/``bDelta`` to 1/0 for every vertex at the start of *every*
       iteration, following ADM24's stated convention ("we initialize
@@ -1353,11 +1355,10 @@ def max_cardinality_matching_gabow(
       class members that persist across iterations and default to 0 for
       a never-touched vertex (from LEDA's ``node_array<int>`` with no
       explicit default -- not independently verified against real LEDA).
-      Checked (scratch only) that neither the per-iteration reset nor the
-      initial value accounts for the 6 tie-break cases above: forcing
-      either one to match the reference's apparent behavior left the
-      same 6 cases differing, so this is included here as a disclosed,
-      checked difference, not a demonstrated cause of anything.
+      The cross-check above is identical on all 6,320 cases without
+      changing this, so the reset makes no observable difference there;
+      it is included here as a disclosed difference, not a cause of
+      anything.
     * *The `gained == 0` guard.* If Phase 1 finds an augmenting path but
       Phase 2 finds none in H, this function raises
       ``NetworkXAlgorithmError`` (Corollary 3.3 guarantees this is

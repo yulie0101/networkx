@@ -16,8 +16,8 @@ file from the same page and is mentioned only for comparison.
 
 | Commit                             | Date       | What changed                                                                                                                                                                                                                                                                                                | Why                                                                                                                                                                 | Effect on correctness                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Effect on complexity                                                                                                                                                         |
 | ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `6cee35fa4`                        | 2026-09-17 | First version of `max_cardinality_matching_gabow`: Phase 1 (Delta-bucket search, blossom shrinking), Phase 2 (depth-first search on the contracted graph H), greedy warm start, iterative (non-recursive) helpers, union-find with path compression. Also had an opt-in `use_heuristic_fallback` parameter. | Port of the C++ reference into NetworkX.                                                                                                                            | Baseline. It contained two latent defects found later: the LIFO bucket order (bug 2 below) and a quadratic list insert (bug 1).                                                                                                                                                                                                                                                                                                                                                                        | Intended O(√n·m) per the paper; actually O(√n·m·log n) because the union-find had no union by size, plus the quadratic insert in one loop.                                   |
-| `ddfa4edcb` (author: MayaGouldman) | 2026-10-05 | Phase 2 blossom-absorption loop: `tmp.insert(0, cur)` changed to `tmp.append(cur)`.                                                                                                                                                                                                                         | `insert(0, …)` shifts the whole list each time.                                                                                                                     | None on the matching size. It only changes the order in which newly absorbed blossom members are explored, i.e. which of several maximum matchings is returned (636 stress-graph trials, no size difference).                                                                                                                                                                                                                                                                                          | Removes an O(K²) cost per blossom step (K = vertices absorbed in that step), which could exceed the O(m) per-iteration budget on clique-like graphs. Now O(K).               |
+| `6cee35fa4`                        | 2026-09-17 | First version of `max_cardinality_matching_gabow`: Phase 1 (Delta-bucket search, blossom shrinking), Phase 2 (depth-first search on the contracted graph H), greedy warm start, iterative (non-recursive) helpers, union-find with path compression. Also had an opt-in `use_heuristic_fallback` parameter. | Port of the C++ reference into NetworkX.                                                                                                                            | Baseline. It contained two latent defects found later: the LIFO bucket order (bug 2 below) and a quadratic list insert that also reversed Fig. 4's exploration order (performance defect, section 3).                                                                                                                                                                                                                                                                                                  | Intended O(√n·m) per the paper; actually O(√n·m·log n) because the union-find had no union by size, plus the quadratic insert in one loop.                                   |
+| `ddfa4edcb` (author: MayaGouldman) | 2026-10-05 | Phase 2 blossom-absorption loop: `tmp.insert(0, cur)` changed to `tmp.append(cur)`.                                                                                                                                                                                                                         | `insert(0, …)` shifts the whole list each time.                                                                                                                     | None on the matching size (636 stress-graph trials at the time). It also restores the exploration order of Gabow's Fig. 4 (u_1 first); the old code explored the absorbed vertices in reverse. See section 3 for what the reversed order could affect.                                                                                                                                                                                                                                                 | Removes an O(K²) cost per blossom step (K = vertices absorbed in that step), which could exceed the O(m) per-iteration budget on clique-like graphs. Now O(K).               |
 | `3806b99b5`                        | 2026-10-05 | Added the internal instrumentation parameters `_counters` (operation counts per iteration) and `_skip_greedy_init` (start from an empty matching, as in the paper's Fig. 1).                                                                                                                                | Needed to measure iterations and work for the complexity experiments.                                                                                               | None: counters only increment; the default path is unchanged.                                                                                                                                                                                                                                                                                                                                                                                                                                          | One extra `is not None` check per instrumented line; no change in order of growth.                                                                                           |
 | `b0c76ef47`                        | 2026-10-05 | Union-find now uses union by size as well as path compression. A separate `rep` map keeps the blossom base as the reported representative. The old behaviour is still available with `_union_by_size=False`.                                                                                                | Path compression alone gives O(log n) per operation; with union by size it is O(α(n)), matching the C++ reference's LEDA union-find.                                | None: identical matchings on 300/300 random graphs across old, new and compression-only versions; full test suite passed.                                                                                                                                                                                                                                                                                                                                                                              | Per-iteration cost goes from O(m·log n) to O(m·α(n)), so the total is O(√n·m·α(n)).                                                                                          |
 | `8927e3d4d`                        | 2026-10-05 | Merge bringing in `ddfa4edcb`; comment next to `tmp.append` explaining the order difference from the C++ `push_front`.                                                                                                                                                                                      | Merge of teammate's test and visualization work.                                                                                                                    | None (comment only in the algorithm).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | None.                                                                                                                                                                        |
@@ -42,20 +42,31 @@ None of these changes the size of the returned matching.
    costs almost nothing, and nobody has proved it is unnecessary with
    FIFO (see section 4). The later `GabowRevised.h` has an equivalent
    check.
-2. **Order of three lists (tie-breaks only).** We append to `T` and to
-   the Phase 2 list `tmp` where the reference prepends, and Phase 2 picks
-   its starting roots in a slightly different order. Reason: appending
-   is O(1) in Python, while prepending to a list is not. Effect: a
-   cross-check against the compiled reference with all three orders made
-   identical found 6,314 of 6,320 cases identical edge for edge. All
-   6,320 agreed on matching size, number of iterations, and augmentations
-   per iteration; the other 6 return a different maximum matching of the
-   same size.
+2. **Order of two lists (tie-breaks only).** We append to `T` where the
+   reference prepends, and Phase 2 picks its starting roots in a slightly
+   different order. Reason: appending is O(1) in Python, while prepending
+   to a list is not. Effect: a cross-check against the compiled reference,
+   using a scratch copy of our code with these two orders changed to the
+   reference's, found **all 6,320 cases identical edge for edge** (same
+   matching, number of iterations and augmentations per iteration).
+
+   The Phase 2 list `tmp` is **not** a difference, although it looks like
+   one: we append where the reference prepends (`push_front`), but the
+   reference explores `tmp` by recursion and we use a LIFO stack, so both
+   explore u_1 first (see the performance-defect entry in section 3).
+   An earlier version of that cross-check also changed `tmp` to prepend,
+   which reversed the order, and reported 6,314 of 6,320 identical; with
+   `tmp` left as in our code, the 6 remaining differences disappeared.
+   (`cpp_provenance.md` §2.3 and the Notes in `matching.py`'s docstring
+   still describe the older result.)
+
 3. **Dual values reset every iteration.** We reset `bd`/`bDelta` to 1/0
    for every vertex at the start of each iteration, following the ADM24
    paper ("we initialize d(v) to one for all v"). The reference keeps
-   them between iterations. Checked: changing ours to match did not
-   change any result, including the 6 cases above.
+   them between iterations. Checked earlier with the old cross-check:
+   changing ours to match did not change any result. Since the
+   cross-check is now identical on all 6,320 cases without this change,
+   the reset makes no observable difference there.
 4. **Error instead of silent stop when an iteration gains nothing.** The
    reference has no such check (its loop would repeat forever). See
    `995308a86` above.
@@ -82,7 +93,10 @@ None of these changes the size of the returned matching.
 
 ## 3. Bugs found
 
-### Bug 1: quadratic list insert in Phase 2
+### Performance defect (not a correctness bug): quadratic list insert in Phase 2, whose fix also restored the order of Gabow's Fig. 4
+
+Results were correct before and after this change; it is listed here
+because it was a real defect in the port.
 
 - **How found:** changed by Maya Gouldman in `ddfa4edcb` (commit
   message: "Fix potential matching issue"); its cost was analysed
@@ -91,13 +105,73 @@ None of these changes the size of the returned matching.
   commit `8927e3d4d` calls this "Shai's" change by mistake, and the
   backup branch name `backup/pre-merge-shai` repeats the same mistake.
   The change is Maya's, as the commit's author field shows.
-- **Root cause:** `tmp.insert(0, cur)` in the blossom-absorption loop
-  costs time proportional to the list length, so building a list of K
-  vertices costs O(K²).
-- **Fix:** `tmp.append(cur)` (`ddfa4edcb`).
-- **Guarding test:** none specific to the cost; correctness of the new
-  order is covered by the blossom tests (nested, chained, windmill and
-  random graphs checked against `max_weight_matching`).
+- **Root cause (cost):** `tmp.insert(0, cur)` in the blossom-absorption
+  loop costs time proportional to the list length, so building a list of
+  K vertices costs O(K²).
+- **Root cause (order):** a blossom step in Phase 2 makes the odd
+  vertices u_1, …, u_k on the tree path even again (u_1 is closest to
+  the base b(x)). Gabow's Fig. 4, line 6, explores them in that order:
+  "for i ← 1 to k do find_ap(u_i) /\* process u_i in order of increasing
+  depth \*/". The C++ reference does this with `tmp.push_front` plus
+  recursion. Our port replaces the recursion with an explicit LIFO
+  stack, which reverses push order: with `append`, u_1 ends on top and is
+  explored first, as in Fig. 4. The old `insert(0, …)` put u_k on top, so
+  the old code explored them in the **reverse** order. Run traces
+  confirm this (3,000 random graphs, greedy on and off, blossom steps
+  with at least 2 absorbed vertices): current code u_1 first in 114/114,
+  old code u_k first in 114/114, compiled C++ reference u_1 first in
+  55/55.
+- **Fix:** `tmp.append(cur)` (`ddfa4edcb`), which fixed both the cost
+  (O(K²) → O(K)) and the order.
+- **Guarding test:** none specific to the cost or the order; the blossom
+  tests (nested, chained, windmill and random graphs checked against
+  `max_weight_matching`) cover the results.
+- **What the reversed order could affect, in theory.** The order matters
+  for the proof that each iteration finds a _maximal_ set of
+  vertex-disjoint shortest augmenting paths, not for whether the
+  returned matching is maximum:
+  - Gabow (2017), Sec. 4, on property (P1) ("every outer vertex that has
+    not been completely scanned is on a path of P"): "Line 6 is important
+    for this." His proof of (P1) in Appendix A uses the order directly:
+    "When find_ap(u_1) returns, u_1 is completely scanned, so induction
+    (applied to u_1) shows P(u_2) contains every new outer vertex not
+    completely scanned. … This pattern continues for u_3, …, u_k."
+    (P1) and (P2) together give maximality.
+  - Mehlhorn & Nobahari, Sec. 3.2: "we should put u*k to u_1 (in this
+    order!!!) on the recursion stack … and start to explore edges out of
+    u_1 … If the calls were made in a different order, the above would
+    not be true. For example, if we were to search from u_k first and be
+    successful, the removal of the augmenting path would remove the
+    justification for the nodes u_1 to u*{k−1} to be even."
+
+  So with the reversed order the proof of maximality no longer applies.
+  Correctness of the final result does not depend on it: every path
+  found is still a valid augmenting path (it is rebuilt from parent and
+  bridge pointers, not from the stack), and the outer loop continues
+  until Phase 1 finds no augmenting path. What is at risk is the
+  O(√n) bound on the number of iterations, which needs maximal sets.
+
+- **What it did in practice.** Scratch experiment: the current code
+  against the same code with only `tmp.insert(0, cur)` restored, on
+  4,000 random graphs (8–60 vertices, greedy on and off) plus F3, F4 and
+  F5 (edge-scan start) instances, 8,010 runs each.
+  - Final matching: valid and of maximum size in all 8,010 runs of both
+    versions.
+  - Hopcroft–Karp invariant (the shortest augmenting path length strictly
+    increases from one iteration to the next; a violation would mean an
+    iteration left a same-length path behind, i.e. its set was not
+    maximal): 0 violations in either version.
+  - Iterations: equal in 8,008 runs; the old order needed one more
+    iteration in 2 runs (one 50-vertex graph, greedy on and off) and never
+    fewer. In the length-5 iteration of that graph the current code
+    augments 2 disjoint shortest paths, the old order finds 1 whose
+    augmentation destroys the other, which then has to be found later as
+    a length-7 path. The old order's set was still maximal, just smaller.
+
+  Conclusion: the old order was more than a tie-break in theory, because
+  the published maximality proof does not cover it, but no harm to
+  correctness was possible and none to maximality was observed; its only
+  observed effect was an occasional extra iteration.
 
 ### Bug 2: stale bucket entries gave a matching one edge too small
 
@@ -191,9 +265,11 @@ fixed there:
   - The 232,195-case sweep: the reference gave the correct size on every
     case. A FIFO-only patch of our old code also passed every case, and
     our current code passed the 2,452-graph check.
-  - The 6,320-case same-order cross-check: identical sizes, iteration
-    counts and augmentations per iteration in every case; 6,314
-    identical edge for edge.
+  - The 6,320-case same-order cross-check (52 known cases, a 6,000-graph
+    battery, small F3/F4/F5 instances; two starting matchings each):
+    **6,320 of 6,320 identical** edge for edge, in iteration count and in
+    augmentations per iteration, once the `T` and root orders are matched
+    and `tmp` is left as in our code (section 2, item 2).
 - **Complexity, by reading the code:** a line-by-line audit
   (`docs/complexity_audit.md`) found O(m·α(n)) work per iteration plus
   the O(n) re-initialization, and no recursion.
@@ -212,9 +288,6 @@ fixed there:
   in 232,195 cases, but neither the Mehlhorn & Nobahari paper nor ADM24
   states an invariant that rules out a stale entry under FIFO. This is
   empirical evidence, not a proof; the recheck is kept.
-- **The 6 tie-break cases.** Six cases still return a different (equally
-  large) matching from the reference. Changing the dual-value reset did
-  not explain them; the cause has not been identified.
 - **Per-iteration re-initialization.** The O(n) rebuild in every
   iteration is disclosed but not removed. Removing it would need a
   larger refactor.
@@ -232,8 +305,20 @@ fixed there:
 - **Dense graphs with an empty start.** With an empty starting matching
   (greedy off), our implementation is slower than NetworkX's Edmonds
   implementation on dense random graphs at n = 800: about 1.1 times at
-  10% density and 2.2–3.4 times at 25–100% density. With the default
-  greedy start it is faster than Edmonds at the largest measured size of
-  every family, though not at every single size (for example 0.84× at
-  n = 400, 75% density). This is about constant factors in Python, not
-  about the asymptotic bound.
+  10% density and 2.2–3.4 times at 25–100% density. This is about
+  constant factors in Python, not about the asymptotic bound.
+- **Greedy-start speedups on dense graphs depend on how runs are
+  aggregated.** With the default greedy start, running times are bimodal:
+  on some graphs the greedy matching is already maximum and Gabow
+  finishes in milliseconds, on others it runs the full search. Example,
+  n = 400, 75% density, same `--full` run as P6/P9 (5 graphs):
+  - _Per-graph medians:_ Edmonds/Gabow = 0.72×, 1.09×, 0.84×, 31× and
+    42×. Greedy was already maximum on the two fast graphs; Gabow is
+    slower on 2 of 5 graphs, and the median over graphs is 0.84×.
+  - _Median over all timed runs_ (what P6/P9 plot): about 30×. Fast calls
+    are repeated until 2 s have elapsed, so the two fast graphs
+    contribute 100 of the 133 Gabow timings and dominate this median.
+
+  Both numbers come from the same measurements. P6/P9 should be read as
+  "typical run", not "typical graph"; per-graph medians would be the
+  fairer summary for bimodal points.
