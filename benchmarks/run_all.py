@@ -231,6 +231,37 @@ def _write_rows_csv(rows, name, fields):
     return path
 
 
+def _append_row_csv(row, name, fields):
+    """Append one finished row to disk immediately (resumability: a killed
+    run loses at most the one in-flight row, not everything collected so
+    far). Creates the file with a header on first use.
+    """
+    path = OUTDIR / name
+    exists = path.exists()
+    with open(path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        if not exists:
+            w.writeheader()
+        w.writerow(row)
+    return path
+
+
+def _load_done_keys(name, key_fields):
+    """Set of key-field tuples (as strings, matching what csv.DictReader
+    hands back) already present in an existing results CSV -- so a
+    restarted run can skip work it already did. Empty set if the file
+    doesn't exist yet.
+    """
+    path = OUTDIR / name
+    if not path.exists():
+        return set()
+    done = set()
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            done.add(tuple(r[k] for k in key_fields))
+    return done
+
+
 def _coerce_bool_or_none(s):
     if s == "True":
         return True
@@ -277,80 +308,86 @@ def load_stagec_csv(name="stageC_raw.csv"):
     return rows
 
 
+STAGEB_KEY_FIELDS = ["family", "n_param", "seed", "greedy_init"]
+
+
 def run_stage_b(sizes_by_family, n_seeds):
     print("\n" + "=" * 70)
-    print("STAGE B: operation counts (Gabow only)")
+    print("STAGE B: operation counts (Gabow only) [resumable]")
     print("=" * 70)
     seeds = SEEDS[:n_seeds]
-    all_rows = []
+    done = _load_done_keys("stageB_raw.csv", STAGEB_KEY_FIELDS)
+    print(f"  {len(done)} rows already done, will be skipped")
 
     def add(family, gen, sizes, extra_kwargs=None):
         extra_kwargs = extra_kwargs or {}
-        rows = []
+        n_new = 0
         for n in sizes:
             for seed in seeds:
-                G = gen(n, seed, **extra_kwargs)
+                G = None
                 for greedy_init in (True, False):
+                    key = (family, str(n), str(seed), str(greedy_init))
+                    if key in done:
+                        continue
+                    if G is None:
+                        G = gen(n, seed, **extra_kwargs)
                     row = _measure_stageB(G, family, n, seed, greedy_init)
-                    rows.append(row)
+                    _append_row_csv(row, "stageB_raw.csv", STAGEB_FIELDS)
+                    done.add(key)
+                    n_new += 1
         print(
-            f"  {family}: {len(sizes)} sizes x {len(seeds)} seeds x 2 "
-            f"(greedy on/off) = {len(rows)} rows"
+            f"  {family}: {len(sizes)} sizes x {len(seeds)} seeds x 2 -- {n_new} new rows"
         )
-        all_rows.extend(rows)
-        return rows
 
-    rows_f1 = []
     for c in (3, 5, 10):
-        rows_f1.extend(
-            add(
-                f"F1_sparse_c{c}",
-                lambda n, seed, c=c: f1_random_sparse(n, c, seed),
-                sizes_by_family["F1"],
-            )
+        add(
+            f"F1_sparse_c{c}",
+            lambda n, seed, c=c: f1_random_sparse(n, c, seed),
+            sizes_by_family["F1"],
         )
-    rows_f2 = []
     for d in (0.10, 0.25, 0.50, 0.75, 1.00):
-        rows_f2.extend(
-            add(
-                f"F2_density{round(d * 100)}",
-                lambda n, seed, d=d: f2_random_dense(n, d, seed),
-                sizes_by_family["F2"],
-            )
+        add(
+            f"F2_density{round(d * 100)}",
+            lambda n, seed, d=d: f2_random_dense(n, d, seed),
+            sizes_by_family["F2"],
         )
-    rows_f3 = add("F3_bad_greedy", f3_bad_greedy, sizes_by_family["F3"])
-    rows_f4 = add("F4_nested_blossoms", f4_nested_blossoms, sizes_by_family["F4"])
+    add("F3_bad_greedy", f3_bad_greedy, sizes_by_family["F3"])
+    add("F4_nested_blossoms", f4_nested_blossoms, sizes_by_family["F4"])
 
-    rows_f5 = []
+    n_new_f5 = 0
     for n_param in sizes_by_family["F5"]:
         for seed in seeds[:3]:  # "3 shuffles per size"
-            G = f5_short_and_long_chains(n_param, seed, shuffle=False)
-            for greedy_init in (True, False):
-                row = _measure_stageB(
-                    G, "F5_chains_unshuffled", n_param, seed, greedy_init
-                )
-                rows_f5.append(row)
-            G_shuf = f5_short_and_long_chains(n_param, seed, shuffle=True)
-            for greedy_init in (True, False):
-                row = _measure_stageB(
-                    G_shuf, "F5_chains_shuffled", n_param, seed, greedy_init
-                )
-                rows_f5.append(row)
-    print(f"  F5_chains: {len(rows_f5)} rows")
-    all_rows.extend(rows_f5)
+            for family_name, shuffle in (
+                ("F5_chains_unshuffled", False),
+                ("F5_chains_shuffled", True),
+            ):
+                key = (family_name, str(n_param), str(seed), "True")
+                key2 = (family_name, str(n_param), str(seed), "False")
+                if key in done and key2 in done:
+                    continue
+                G = f5_short_and_long_chains(n_param, seed, shuffle=shuffle)
+                for greedy_init in (True, False):
+                    k = (family_name, str(n_param), str(seed), str(greedy_init))
+                    if k in done:
+                        continue
+                    row = _measure_stageB(G, family_name, n_param, seed, greedy_init)
+                    _append_row_csv(row, "stageB_raw.csv", STAGEB_FIELDS)
+                    done.add(k)
+                    n_new_f5 += 1
+    print(f"  F5_chains: {n_new_f5} new rows")
 
-    rows_f6 = add("F6_long_path", f6_long_path, sizes_by_family["F6"])
+    add("F6_long_path", f6_long_path, sizes_by_family["F6"])
 
-    path = _write_rows_csv(all_rows, "stageB_raw.csv", STAGEB_FIELDS)
-    print(f"Saved Stage B raw data to {path} ({len(all_rows)} rows total)")
+    all_rows = load_stageb_csv()
+    print(f"Stage B raw data: {OUTDIR / 'stageB_raw.csv'} ({len(all_rows)} rows total)")
 
     families = {
         "F1": [r for r in all_rows if r["family"].startswith("F1")],
         "F2": [r for r in all_rows if r["family"].startswith("F2")],
-        "F3": rows_f3,
-        "F4": rows_f4,
-        "F5": rows_f5,
-        "F6": rows_f6,
+        "F3": [r for r in all_rows if r["family"] == "F3_bad_greedy"],
+        "F4": [r for r in all_rows if r["family"] == "F4_nested_blossoms"],
+        "F5": [r for r in all_rows if r["family"].startswith("F5_chains_")],
+        "F6": [r for r in all_rows if r["family"] == "F6_long_path"],
     }
     return all_rows, families
 
@@ -458,22 +495,49 @@ def _calibrate_f1_edmonds_cap(sizes_by_family):
     return cap
 
 
-def run_stage_c(sizes_by_family, n_seeds):
+def _reconstruct_edmonds_disabled(csv_name, timeout_sec):
+    """On resume, re-derive which families had Edmonds already shown too
+    slow (so a restart doesn't retry Edmonds on a large n that a prior,
+    killed run already proved too slow for -- it would just time out
+    again)."""
+    path = OUTDIR / csv_name
+    disabled = {}
+    if not path.exists():
+        return disabled
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            if r["algorithm"] == "edmonds" and float(r["runtime_sec"]) > timeout_sec:
+                disabled[r["family"]] = True
+    return disabled
+
+
+def run_stage_c(sizes_by_family, n_seeds, csv_name="stageC_raw.csv"):
     print("\n" + "=" * 70)
     print(
-        "STAGE C: wall-clock, Gabow (greedy ON/OFF) vs Edmonds (instrumentation OFF for timing)"
+        f"STAGE C: wall-clock, Gabow (greedy ON/OFF) vs Edmonds (instrumentation OFF for timing) [resumable -> {csv_name}]"
     )
     print("=" * 70)
     seeds = SEEDS[:n_seeds]
-    rows = []
     # Keyed by the FULL family string (e.g. "F1_sparse_c3"), NOT by fam_key
     # ("F1") -- an earlier version shared one flag across all three F1
     # c-values (and all five F2 densities), so one slow Edmonds call in
     # F1_sparse_c3 silently disabled Edmonds for F1_sparse_c5/c10 too, even
     # though they were never themselves tested. fam_key is still used below
     # for the (legitimately shared) F1 size cap.
-    edmonds_disabled = {}
+    edmonds_disabled = _reconstruct_edmonds_disabled(csv_name, TIMEOUT_SEC)
     f1_edmonds_cap = _calibrate_f1_edmonds_cap(sizes_by_family)
+    # Combo-level done-set: (family, n, seed, algorithm, greedy_init) with
+    # no runtime_sec -- a whole combo's repeats are written atomically, so
+    # presence of ANY row for a combo means that combo is done.
+    done = set()
+    path = OUTDIR / csv_name
+    if path.exists():
+        with open(path, newline="") as f:
+            for r in csv.DictReader(f):
+                done.add(
+                    (r["family"], r["n"], r["seed"], r["algorithm"], r["greedy_init"])
+                )
+    print(f"  {len(done)} (family,n,seed,algorithm,greedy_init) combos already done")
 
     def gabow(greedy_init):
         return lambda G: nx.max_cardinality_matching_gabow(
@@ -487,16 +551,43 @@ def run_stage_c(sizes_by_family, n_seeds):
         extra_kwargs = extra_kwargs or {}
         for n in sizes:
             for seed in seeds:
+                g_combo_keys = {
+                    gi: (family, str(n), str(seed), "gabow", str(gi))
+                    for gi in (True, False)
+                }
+                e_key = (family, str(n), str(seed), "edmonds", "None")
+                need_gabow = any(k not in done for k in g_combo_keys.values())
+                fam_key = family.split("_")[0]
+                over_f1_cap = (
+                    fam_key == "F1"
+                    and f1_edmonds_cap is not None
+                    and n > f1_edmonds_cap
+                )
+                need_edmonds = (
+                    e_key not in done
+                    and not edmonds_disabled.get(family, False)
+                    and not over_f1_cap
+                )
+                if not need_gabow and not need_edmonds:
+                    continue
+
                 G = gen(n, seed, **extra_kwargs)
                 m = G.number_of_edges()
 
                 res_g_by_mode = {}
                 for greedy_init in (True, False):
+                    key = g_combo_keys[greedy_init]
                     iters, already_opt = _gabow_diagnostics(G, greedy_init)
+                    if key in done:
+                        # Still need res_g for the Edmonds size-match assert
+                        # below if Edmonds itself is new this run.
+                        if need_edmonds:
+                            res_g_by_mode[greedy_init] = gabow(greedy_init)(G)
+                        continue
                     times_g, res_g = _adaptive_timed_runs(gabow(greedy_init), G)
                     res_g_by_mode[greedy_init] = res_g
                     for t in times_g:
-                        rows.append(
+                        _append_row_csv(
                             {
                                 "family": family,
                                 "n": n,
@@ -507,26 +598,23 @@ def run_stage_c(sizes_by_family, n_seeds):
                                 "runtime_sec": t,
                                 "iterations": iters,
                                 "greedy_already_optimal": already_opt,
-                            }
+                            },
+                            csv_name,
+                            STAGEC_FIELDS,
                         )
+                    done.add(key)
                     print(
                         f"  {family} n={n} seed={seed} greedy_init={greedy_init}: "
                         f"median={statistics.median(times_g):.4g}s mean={statistics.mean(times_g):.4g}s "
                         f"iterations={iters} greedy_already_optimal={already_opt}"
                     )
 
-                fam_key = family.split("_")[0]
-                over_f1_cap = (
-                    fam_key == "F1"
-                    and f1_edmonds_cap is not None
-                    and n > f1_edmonds_cap
-                )
                 if over_f1_cap and not edmonds_disabled.get(family, False):
                     print(
                         f"    skipping Edmonds at n={n} ({family}): over the calibrated F1 cap "
                         f"({f1_edmonds_cap}); Gabow still ran above."
                     )
-                if not edmonds_disabled.get(family, False) and not over_f1_cap:
+                if need_edmonds:
                     times_e, res_e = _adaptive_timed_runs(edmonds, G)
                     if max(times_e) > TIMEOUT_SEC:
                         print(
@@ -535,7 +623,7 @@ def run_stage_c(sizes_by_family, n_seeds):
                         )
                         edmonds_disabled[family] = True
                     for t in times_e:
-                        rows.append(
+                        _append_row_csv(
                             {
                                 "family": family,
                                 "n": n,
@@ -546,8 +634,11 @@ def run_stage_c(sizes_by_family, n_seeds):
                                 "runtime_sec": t,
                                 "iterations": None,
                                 "greedy_already_optimal": None,
-                            }
+                            },
+                            csv_name,
+                            STAGEC_FIELDS,
                         )
+                    done.add(e_key)
                     for greedy_init, res_g in res_g_by_mode.items():
                         if (
                             len(res_g) != len(res_e)
@@ -576,9 +667,223 @@ def run_stage_c(sizes_by_family, n_seeds):
             sizes_by_family["F2"],
         )
 
-    path = _write_rows_csv(rows, "stageC_raw.csv", STAGEC_FIELDS)
-    print(f"Saved Stage C raw data to {path} ({len(rows)} rows total)")
+    rows = load_stagec_csv(csv_name)
+    print(f"Stage C raw data: {OUTDIR / csv_name} ({len(rows)} rows total)")
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Hard families (F3-F6) vs Edmonds: P8/P9. Separate CSV and separate
+# (lower) Edmonds-disable threshold from F1/F2's run_stage_c, since these
+# families are specifically adversarial for Edmonds and the point is
+# comparative speed, not a from-scratch repeat of Stage C's own policy.
+# ---------------------------------------------------------------------------
+
+STAGEC_HARD_FIELDS = [
+    "family",
+    "n",
+    "n_param",
+    "m",
+    "seed",
+    "algorithm",
+    "variant",
+    "runtime_sec",
+    "iterations",
+]
+HARD_EDMONDS_TIMEOUT_SEC = 60.0
+
+
+def run_stage_c_hard(
+    sizes_by_family, n_seeds, edmonds_timeout=HARD_EDMONDS_TIMEOUT_SEC
+):
+    """F3-F6 vs Edmonds: Gabow greedy ON, greedy OFF, and (F5 only) the
+    edge-scan-greedy start, each vs Edmonds capped at `edmonds_timeout`.
+    Resumable: appends to stageC_hardfamilies.csv, skips combos already
+    present.
+
+    `n` is the actual vertex count G.number_of_nodes() (what P8/P9 plot);
+    `n_param` is the generator's own size input (the resume key, since
+    `n` is only known after building the graph).
+    """
+    csv_name = "stageC_hardfamilies.csv"
+    print("\n" + "=" * 70)
+    print(f"STAGE C (hard families F3-F6 vs Edmonds) [resumable -> {csv_name}]")
+    print("=" * 70)
+    seeds = SEEDS[:n_seeds]
+    edmonds_disabled = _reconstruct_edmonds_disabled_hard(csv_name, edmonds_timeout)
+    done = set()
+    path = OUTDIR / csv_name
+    if path.exists():
+        with open(path, newline="") as f:
+            for r in csv.DictReader(f):
+                done.add(
+                    (r["family"], r["n_param"], r["seed"], r["algorithm"], r["variant"])
+                )
+    print(f"  {len(done)} combos already done")
+
+    def gabow_variant(G, variant, n_param):
+        if variant == "greedy_on":
+            counters = {}
+            m = nx.max_cardinality_matching_gabow(
+                G.copy(), _counters=counters, _skip_greedy_init=False
+            )
+            return m, counters["iterations"]
+        if variant == "greedy_off":
+            counters = {}
+            m = nx.max_cardinality_matching_gabow(
+                G.copy(), _counters=counters, _skip_greedy_init=True
+            )
+            return m, counters["iterations"]
+        if variant == "edgescan":
+            # The C++ reference's TRUE edge-insertion order, exactly as in
+            # run_f5_edgescan (P10) -- NOT G.edges(), whose node-major order
+            # yields a different greedy matching that pre-solves this
+            # family in one iteration.
+            edge_order = _f5_true_edge_order(n_param, mode=1)
+            assert {frozenset(e) for e in edge_order} == {
+                frozenset(e) for e in G.edges()
+            }
+            initial_mate = _edge_scan_greedy(edge_order)
+            counters = {}
+            m = nx.max_cardinality_matching_gabow(
+                G.copy(),
+                _counters=counters,
+                _skip_greedy_init=True,
+                _initial_mate=initial_mate,
+            )
+            return m, counters["iterations"]
+        raise ValueError(variant)
+
+    def edmonds(G):
+        return nx.max_weight_matching(G, maxcardinality=True)
+
+    def run_family(family, gen, sizes, variants, extra_kwargs=None):
+        extra_kwargs = extra_kwargs or {}
+        for n in sizes:
+            for seed in seeds:
+                variant_keys = {
+                    v: (family, str(n), str(seed), "gabow", v) for v in variants
+                }
+                e_key = (family, str(n), str(seed), "edmonds", "none")
+                need_any_gabow = any(k not in done for k in variant_keys.values())
+                need_edmonds = e_key not in done and not edmonds_disabled.get(
+                    family, False
+                )
+                if not need_any_gabow and not need_edmonds:
+                    continue
+                G = gen(n, seed, **extra_kwargs)
+                n_real = G.number_of_nodes()
+                m = G.number_of_edges()
+                res_by_variant = {}
+                for variant in variants:
+                    key = variant_keys[variant]
+                    if key in done:
+                        if need_edmonds:
+                            res_by_variant[variant], _ = gabow_variant(G, variant, n)
+                        continue
+                    t0 = time.perf_counter()
+                    res, iters = gabow_variant(G, variant, n)
+                    dt = time.perf_counter() - t0
+                    res_by_variant[variant] = res
+                    _append_row_csv(
+                        {
+                            "family": family,
+                            "n": n_real,
+                            "n_param": n,
+                            "m": m,
+                            "seed": seed,
+                            "algorithm": "gabow",
+                            "variant": variant,
+                            "runtime_sec": dt,
+                            "iterations": iters,
+                        },
+                        csv_name,
+                        STAGEC_HARD_FIELDS,
+                    )
+                    done.add(key)
+                    print(
+                        f"  {family} n_param={n} n={n_real} seed={seed} {variant}: {dt:.4g}s iterations={iters}"
+                    )
+                sizes_seen = {len(r) for r in res_by_variant.values()}
+                if len(sizes_seen) > 1:
+                    raise AssertionError(
+                        f"MISMATCH between Gabow variants family={family} n_param={n} seed={seed}: "
+                        f"{ {v: len(r) for v, r in res_by_variant.items()} }"
+                    )
+                if need_edmonds:
+                    t0 = time.perf_counter()
+                    res_e = edmonds(G)
+                    dt = time.perf_counter() - t0
+                    _append_row_csv(
+                        {
+                            "family": family,
+                            "n": n_real,
+                            "n_param": n,
+                            "m": m,
+                            "seed": seed,
+                            "algorithm": "edmonds",
+                            "variant": "none",
+                            "runtime_sec": dt,
+                            "iterations": None,
+                        },
+                        csv_name,
+                        STAGEC_HARD_FIELDS,
+                    )
+                    done.add(e_key)
+                    for variant, res_g in res_by_variant.items():
+                        if len(res_g) != len(res_e):
+                            raise AssertionError(
+                                f"MISMATCH family={family} n={n} seed={seed} variant={variant}: "
+                                f"gabow={len(res_g)} edmonds={len(res_e)}"
+                            )
+                    print(f"    edmonds: {dt:.4g}s")
+                    if dt > edmonds_timeout:
+                        print(
+                            f"    Edmonds exceeded {edmonds_timeout}s ({family}); disabling for larger n."
+                        )
+                        edmonds_disabled[family] = True
+
+    run_family(
+        "F3_bad_greedy",
+        f3_bad_greedy,
+        sizes_by_family["F3"],
+        ("greedy_on", "greedy_off"),
+    )
+    run_family(
+        "F4_nested_blossoms",
+        f4_nested_blossoms,
+        sizes_by_family["F4"],
+        ("greedy_on", "greedy_off"),
+    )
+    run_family(
+        "F5_chains_edgescan_hard",
+        lambda n, seed: f5_short_and_long_chains(n, seed, shuffle=False),
+        sizes_by_family["F5"],
+        ("greedy_on", "greedy_off", "edgescan"),
+    )
+    run_family(
+        "F6_long_path", f6_long_path, sizes_by_family["F6"], ("greedy_on", "greedy_off")
+    )
+
+    rows = _load_rows_csv(
+        csv_name,
+        int_fields=["n", "n_param", "m", "seed", "iterations"],
+        float_fields=["runtime_sec"],
+    )
+    print(f"Stage C hard-families raw data: {path} ({len(rows)} rows total)")
+    return rows
+
+
+def _reconstruct_edmonds_disabled_hard(csv_name, timeout_sec):
+    path = OUTDIR / csv_name
+    disabled = {}
+    if not path.exists():
+        return disabled
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            if r["algorithm"] == "edmonds" and float(r["runtime_sec"]) > timeout_sec:
+                disabled[r["family"]] = True
+    return disabled
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +1089,12 @@ def run_f5_edgescan(sizes=F5_EDGESCAN_SIZES):
         )
         initial_mate = _edge_scan_greedy(edge_order)
         row = _measure_stageB(
-            G, "F5_chains_edgescan", n_param, seed=0, greedy_init=False, _initial_mate=initial_mate
+            G,
+            "F5_chains_edgescan",
+            n_param,
+            seed=0,
+            greedy_init=False,
+            _initial_mate=initial_mate,
         )
         rows.append(row)
         print(
@@ -795,6 +1105,40 @@ def run_f5_edgescan(sizes=F5_EDGESCAN_SIZES):
     path = _write_rows_csv(rows, "stageB_f5_edgescan.csv", STAGEB_FIELDS)
     print(f"Saved F5 edge-scan-greedy data to {path} ({len(rows)} rows total)")
     return rows
+
+
+def _simulate_heur_trigger_series(sizes=(5000, 10000, 20000)):
+    """For each F5 edge-scan n_param, simulate GabowBeautified.h's `heur`
+    trigger condition (number_of_iterations > 0.5*(max_size_of_M -
+    size_of_M), checked BEFORE each iteration, using size_of_M as of the
+    end of the previous one) against our own real per-iteration
+    augmentation counts, and return (actual_n, trigger_iteration) pairs.
+    Explains the companion driver's reported 24/33/47 (it stops counting
+    once heur triggers, since heur then finishes everything in one
+    further, uncounted sweep) -- see docs/complexity_audit.md.
+    """
+    out_n, out_trigger = [], []
+    for n_param in sizes:
+        G = VC.chains_graph(n_param, mode=1)
+        edge_order = _f5_true_edge_order(n_param, mode=1)
+        initial_mate = _edge_scan_greedy(edge_order)
+        size_of_M = len(initial_mate) // 2
+        n = G.number_of_nodes()
+        max_size_of_M = min(n // 2, 2 * size_of_M)
+        counters = {}
+        nx.max_cardinality_matching_gabow(
+            G, _counters=counters, _skip_greedy_init=True, _initial_mate=initial_mate
+        )
+        trigger = None
+        for k, entry in enumerate(counters["per_iteration"], start=1):
+            if k > 0.5 * (max_size_of_M - size_of_M):
+                trigger = k
+                break
+            size_of_M += entry["augmentations"]
+        if trigger is not None:
+            out_n.append(n)
+            out_trigger.append(trigger)
+    return out_n, out_trigger
 
 
 def load_f5_edgescan_csv(name="stageB_f5_edgescan.csv"):
@@ -1161,7 +1505,11 @@ def plot_p7_f5_iterations(stageb_rows, outpath):
         ("F5_chains_shuffled", False, "ours shuffled, greedy OFF"),
         # edge-scan-greedy has no True/False distinction (_initial_mate
         # overrides greedy_init entirely) -- matched by family alone below.
-        ("F5_chains_edgescan", None, "ours unshuffled, edge-scan greedy (C++ reference init())"),
+        (
+            "F5_chains_edgescan",
+            None,
+            "ours unshuffled, edge-scan greedy (C++ reference init())",
+        ),
     ]
     for i, (fam, greedy, label) in enumerate(tags):
         sub = [
@@ -1200,30 +1548,193 @@ def plot_p10_f5_edgescan(f5_edgescan_rows, outpath):
     ns = sorted({r["n"] for r in rows})
     iters = [next(r["iterations"] for r in rows if r["n"] == n) for n in ns]
     ops_over_bound = [
-        next(r["total_ops"] for r in rows if r["n"] == n) / (math.sqrt(n) * next(r["m"] for r in rows if r["n"] == n))
+        next(r["total_ops"] for r in rows if r["n"] == n)
+        / (math.sqrt(n) * next(r["m"] for r in rows if r["n"] == n))
         for n in ns
     ]
 
     slope, _i, r2, se = _fit_loglog(ns, iters)
-    ax1.plot(ns, iters, marker="o", linestyle="-", color="tab:blue", label="ours, edge-scan greedy start", markersize=7)
+    ax1.plot(
+        ns,
+        iters,
+        marker="o",
+        linestyle="-",
+        color="tab:blue",
+        label="ours, edge-scan greedy start",
+        markersize=7,
+    )
     paper_n = [10000, 20000, 40000]
     paper_it = [24, 33, 47]
     ax1.plot(paper_n, paper_it, "k*", markersize=14, label="paper Table 1", zorder=5)
+    n_params = sorted({r["n_param"] for r in rows})
+    sim_n, sim_it = _simulate_heur_trigger_series(sizes=n_params)
+    if sim_n:
+        ax1.plot(
+            sim_n, sim_it, "gD", markersize=10, label="simulated heur trigger", zorder=5
+        )
     ax1.set_xscale("log")
     ax1.set_yscale("log")
-    ax1.set_xlabel("actual n")
+    ax1.set_xlabel("n (actual vertex count; paper Table 1 n is also vertices)")
     ax1.set_ylabel("iterations")
-    ax1.set_title(f"P10a: iterations vs n, edge-scan start (k={slope:.2f}+/-{se:.2f}, R2={r2:.2f}, expect ~0.5)")
+    ax1.set_title(
+        f"P10a: iterations vs n, edge-scan start (k={slope:.2f}+/-{se:.2f}, R2={r2:.2f}, expect ~0.5)"
+    )
     ax1.legend(fontsize=8)
     ax1.grid(True, which="both", alpha=0.3)
 
-    ax2.plot(ns, ops_over_bound, marker="s", linestyle="-", color="tab:orange", markersize=7)
+    ax2.plot(
+        ns, ops_over_bound, marker="s", linestyle="-", color="tab:orange", markersize=7
+    )
     ax2.set_xscale("log")
-    ax2.set_xlabel("actual n")
+    ax2.set_xlabel("n (actual vertex count)")
     ax2.set_ylabel("total_ops / (sqrt(n) * m)")
     ax2.set_title("P10b: ops / bound(n,m), edge-scan start (expect ~flat)")
     ax2.grid(True, which="both", alpha=0.3)
 
+    fig.tight_layout()
+    fig.savefig(outpath, dpi=150)
+    plt.close(fig)
+
+
+HARD_VARIANT_STYLE = {
+    "greedy_on": ("tab:blue", "-", "o"),
+    "greedy_off": ("tab:orange", "--", "s"),
+    "edgescan": ("tab:green", "-.", "^"),
+    "edmonds": ("tab:red", ":", "D"),
+}
+
+
+def plot_p8_hard_families(hard_rows, outpath):
+    """One panel per hard family (F3/F4/F5-edgescan-hard/F6): median
+    wall-clock time vs n, for each Gabow variant (greedy on, greedy off,
+    F5-only: edge-scan start) and Edmonds. Log-log.
+    """
+    families = sorted({r["family"] for r in hard_rows})
+    fig, axes = plt.subplots(1, len(families), figsize=(6 * len(families), 5.5))
+    if len(families) == 1:
+        axes = [axes]
+    for ax, family in zip(axes, families):
+        sub = [r for r in hard_rows if r["family"] == family]
+        for algo_variant in sorted({(r["algorithm"], r["variant"]) for r in sub}):
+            algo, variant = algo_variant
+            label = "edmonds" if algo == "edmonds" else variant
+            color, ls, marker = HARD_VARIANT_STYLE.get(label, ("gray", "-", "o"))
+            pts = sorted(
+                {
+                    r["n"]
+                    for r in sub
+                    if r["algorithm"] == algo and r["variant"] == variant
+                }
+            )
+            meds = [
+                statistics.median(
+                    [
+                        r["runtime_sec"]
+                        for r in sub
+                        if r["n"] == n
+                        and r["algorithm"] == algo
+                        and r["variant"] == variant
+                    ]
+                )
+                for n in pts
+            ]
+            if pts:
+                ax.plot(
+                    pts,
+                    meds,
+                    marker=marker,
+                    linestyle=ls,
+                    color=color,
+                    label=label,
+                    markersize=6,
+                )
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("n (actual vertex count)")
+        ax.set_ylabel("median runtime (s)")
+        ax.set_title(f"P8: {family}")
+        ax.legend(fontsize=8)
+        ax.grid(True, which="both", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(outpath, dpi=150)
+    plt.close(fig)
+
+
+def plot_p9_speedup_all_families(stagec_rows, hard_rows, outpath):
+    """Speedup (Edmonds median / Gabow median, greedy ON) vs n, one line
+    per family, F1/F2 (from stageC_raw.csv) plus F3/F4/F5-edgescan-hard/F6
+    (from stageC_hardfamilies.csv). y=1 reference line.
+    """
+    fig, ax = plt.subplots(figsize=(9, 6.5))
+    series = {}  # family -> (ns, speedups)
+    for family in sorted({r["family"] for r in stagec_rows}):
+        sub = [r for r in stagec_rows if r["family"] == family]
+        ns = sorted(
+            {
+                r["n"]
+                for r in sub
+                if r["algorithm"] == "gabow" and r["greedy_init"] is True
+            }
+        )
+        xs, ys = [], []
+        for n in ns:
+            g = [
+                r["runtime_sec"]
+                for r in sub
+                if r["n"] == n
+                and r["algorithm"] == "gabow"
+                and r["greedy_init"] is True
+            ]
+            e = [
+                r["runtime_sec"]
+                for r in sub
+                if r["n"] == n and r["algorithm"] == "edmonds"
+            ]
+            if g and e:
+                xs.append(n)
+                ys.append(statistics.median(e) / statistics.median(g))
+        if xs:
+            series[family] = (xs, ys)
+    for family in sorted({r["family"] for r in hard_rows}):
+        sub = [r for r in hard_rows if r["family"] == family]
+        ns = sorted(
+            {
+                r["n"]
+                for r in sub
+                if r["algorithm"] == "gabow" and r["variant"] == "greedy_on"
+            }
+        )
+        xs, ys = [], []
+        for n in ns:
+            g = [
+                r["runtime_sec"]
+                for r in sub
+                if r["n"] == n
+                and r["algorithm"] == "gabow"
+                and r["variant"] == "greedy_on"
+            ]
+            e = [
+                r["runtime_sec"]
+                for r in sub
+                if r["n"] == n and r["algorithm"] == "edmonds"
+            ]
+            if g and e:
+                xs.append(n)
+                ys.append(statistics.median(e) / statistics.median(g))
+        if xs:
+            series[family] = (xs, ys)
+
+    for i, (family, (xs, ys)) in enumerate(sorted(series.items())):
+        marker, ls = _style(i)
+        ax.plot(xs, ys, marker=marker, linestyle=ls, label=family, markersize=6)
+    ax.axhline(1.0, color="black", linewidth=1, linestyle="-", label="y=1 (no speedup)")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("n")
+    ax.set_ylabel("speedup (edmonds median / gabow greedy-ON median)")
+    ax.set_title("P9: speedup vs n, all families")
+    ax.legend(fontsize=7, ncol=2)
+    ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
     fig.savefig(outpath, dpi=150)
     plt.close(fig)
@@ -1420,6 +1931,7 @@ def write_summary(
     path,
     stable_rows=None,
     f5_edgescan_rows=None,
+    hard_rows=None,
 ):
     lines = []
     lines.append("# Stage B/C experimental summary\n")
@@ -1865,6 +2377,48 @@ def write_summary(
         "comparison per the M=empty finding above is `greedy_init=False`.\n"
     )
 
+    lines.append("## P8/P9 -- Hard families (F3-F6) vs Edmonds\n")
+    if hard_rows:
+        lines.append(
+            "Median wall-clock per (family, n) over all seeds; `n` is the actual "
+            "vertex count. Edmonds is capped: once one call exceeds "
+            f"{HARD_EDMONDS_TIMEOUT_SEC:.0f}s it is disabled for larger n in that "
+            "family (`k` = number of Edmonds samples; k=1 points are single, "
+            "noisy measurements). F5's `edgescan` variant starts from the C++ "
+            "reference's edge-scan greedy in true insertion order (same as P10).\n"
+        )
+        lines.append(
+            "| family | n (vertices) | n_param | variant | iterations | gabow (s) | edmonds (s) | k | speedup |"
+        )
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for fam, n in sorted({(r["family"], r["n"]) for r in hard_rows}):
+            sub = [r for r in hard_rows if r["family"] == fam and r["n"] == n]
+            e = [r["runtime_sec"] for r in sub if r["algorithm"] == "edmonds"]
+            e_med = statistics.median(e) if e else None
+            for variant in ("greedy_on", "greedy_off", "edgescan"):
+                g = [
+                    r
+                    for r in sub
+                    if r["algorithm"] == "gabow" and r["variant"] == variant
+                ]
+                if not g:
+                    continue
+                g_med = statistics.median(r["runtime_sec"] for r in g)
+                it = statistics.median(r["iterations"] for r in g)
+                lines.append(
+                    f"| {fam} | {n} | {g[0]['n_param']} | {variant} | {it:g} | {g_med:.4g} | "
+                    + (
+                        f"{e_med:.4g} | {len(e)} | {e_med / g_med:.1f}x |"
+                        if e
+                        else "-- | 0 | -- |"
+                    )
+                )
+        lines.append("")
+    else:
+        lines.append(
+            "- Not run in this invocation (`python run_all.py --hard-families`).\n"
+        )
+
     lines.append("## P10 -- F5 with the C++ reference's own initial matching\n")
     if f5_edgescan_rows:
         lines.append(
@@ -1887,18 +2441,39 @@ def write_summary(
         )
         rows = [r for r in f5_edgescan_rows if r["family"] == "F5_chains_edgescan"]
         ns = sorted({r["n"] for r in rows})
-        lines.append("| n_param | n | m | iterations | total_ops | ops/(sqrt(n)*m) |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append(
+            "Units: `n` below (and P10's x-axis) is the ACTUAL vertex count "
+            "G.number_of_nodes() for our points; the paper's Table 1 `n` is "
+            "likewise a vertex count (see the P7 size check), so both are "
+            "plotted on the same axis. `n_param` is only our generator's "
+            "construction input.\n"
+        )
+        lines.append(
+            "| n_param | n (vertices) | m | clique size | iterations | total_ops | ops/(sqrt(n)*m) |"
+        )
+        lines.append("|---|---|---|---|---|---|---|")
         for n in ns:
             r = next(r for r in rows if r["n"] == n)
             ops_bound = r["total_ops"] / (math.sqrt(r["n"]) * r["m"])
+            clique = max(2, int(math.sqrt(4 * int(r["n_param"]))))
             lines.append(
-                f"| {r['n_param']} | {r['n']} | {r['m']} | {r['iterations']} | "
+                f"| {r['n_param']} | {r['n']} | {r['m']} | {clique} | {r['iterations']} | "
                 f"{r['total_ops']} | {ops_bound:.4f} |"
             )
-        lines.append("| -- | 10000 | 22000 | 24 (paper) | -- | -- |")
-        lines.append("| -- | 20000 | 56000 | 33 (paper) | -- | -- |")
-        lines.append("| -- | 40000 | 114000 | 47 (paper) | -- | -- |")
+        lines.append("| -- | 10000 | 22000 | -- | 24 (paper) | -- | -- |")
+        lines.append("| -- | 20000 | 56000 | -- | 33 (paper) | -- | -- |")
+        lines.append("| -- | 40000 | 114000 | -- | 47 (paper) | -- | -- |")
+        lines.append(
+            "\n**The n_param=5000 ops outlier (~0.35 vs ~3.2) is a property of "
+            "the graph, not a script or algorithm bug**: it is the only size "
+            "whose clique has ODD order (floor(sqrt(4*n_param)) = 141), so the "
+            "edge-scan greedy leaves one clique vertex free; each iteration's "
+            "search then does ~5x less edge-scan work (median per-iteration "
+            "edge_scans 5283 vs ~24000 at the even-clique neighbors n_param=4900/"
+            "5100), while the iteration count is unaffected (69, on the "
+            "sqrt(n) trend). Reproduced at another odd clique (n_param=5150, "
+            "clique 143: 0.352). Same parity effect as the F5 note under P2.\n"
+        )
         slope, _i, r2, se = _fit_loglog(
             ns, [next(r["iterations"] for r in rows if r["n"] == n) for n in ns]
         )
@@ -2029,9 +2604,16 @@ def _env_info():
 
 
 def _regenerate_plots_and_summary(
-    stageb_rows, stagec_rows, env_info, elapsed, stable_rows, f5_edgescan_rows=None
+    stageb_rows,
+    stagec_rows,
+    env_info,
+    elapsed,
+    stable_rows,
+    f5_edgescan_rows=None,
+    hard_rows=None,
 ):
     f5_edgescan_rows = f5_edgescan_rows or []
+    hard_rows = hard_rows if hard_rows is not None else _load_hard_rows()
     # Folded into the general stageb_rows used by P1/P2/P3/P7 so the new
     # F5_chains_edgescan family shows up there too (more data, same plots);
     # P10 below is specific to it.
@@ -2053,9 +2635,15 @@ def _regenerate_plots_and_summary(
     )
     plot_p7_f5_iterations(stageb_rows_all, PLOTDIR / "P7_f5_iterations_vs_paper.png")
     n_plots = 8
+    if hard_rows:
+        plot_p8_hard_families(hard_rows, PLOTDIR / "P8_hard_families_vs_edmonds.png")
+        plot_p9_speedup_all_families(
+            stagec_rows, hard_rows, PLOTDIR / "P9_speedup_all_families.png"
+        )
+        n_plots += 2
     if f5_edgescan_rows:
         plot_p10_f5_edgescan(f5_edgescan_rows, PLOTDIR / "P10_f5_edgescan.png")
-        n_plots = 9
+        n_plots += 1
     print(f"Saved {n_plots} plots to {PLOTDIR}")
 
     summary_path = write_summary(
@@ -2066,6 +2654,7 @@ def _regenerate_plots_and_summary(
         OUTDIR / "SUMMARY.md",
         stable_rows=stable_rows,
         f5_edgescan_rows=f5_edgescan_rows,
+        hard_rows=hard_rows,
     )
     print(f"Saved {summary_path}")
 
@@ -2091,10 +2680,22 @@ def _prior_elapsed_seconds():
 
 def _load_supplementary_rows():
     stable_rows = (
-        load_stable_check_csv() if (OUTDIR / "stageC_stable_check.csv").exists() else None
+        load_stable_check_csv()
+        if (OUTDIR / "stageC_stable_check.csv").exists()
+        else None
     )
     f5_edgescan_rows = load_f5_edgescan_csv() or None
     return stable_rows, f5_edgescan_rows
+
+
+def _load_hard_rows():
+    if not (OUTDIR / "stageC_hardfamilies.csv").exists():
+        return []
+    return _load_rows_csv(
+        "stageC_hardfamilies.csv",
+        int_fields=["n", "n_param", "m", "seed", "iterations"],
+        float_fields=["runtime_sec"],
+    )
 
 
 def main(argv=None):
@@ -2117,9 +2718,17 @@ def main(argv=None):
         "existing stageB_raw.csv / stageC_raw.csv on disk (does not "
         "re-run --quick/--full collection).",
     )
+    p.add_argument(
+        "--hard-families",
+        action="store_true",
+        help="Run ONLY the F3-F6-vs-Edmonds hard-families comparison "
+        "(stageC_hardfamilies.csv, resumable -- skips combos already "
+        "in the CSV), using --full's sizes, then regenerate plots/"
+        "SUMMARY.md.",
+    )
     args = p.parse_args(argv)
 
-    if args.stable_check or args.f5_edgescan:
+    if args.stable_check or args.f5_edgescan or args.hard_families:
         env_info = _env_info()
         print("Environment:", env_info)
         t0 = time.perf_counter()
@@ -2127,6 +2736,14 @@ def main(argv=None):
             run_f1_stable_check()
         if args.f5_edgescan:
             run_f5_edgescan()
+        if args.hard_families:
+            full_sizes = {
+                "F3": [50, 200, 800, 1600],
+                "F4": [11, 41, 161, 321],
+                "F5": [10000, 20000, 40000],
+                "F6": [1000, 10000, 100000],
+            }
+            run_stage_c_hard(full_sizes, n_seeds=5)
         print(f"\nRun time: {time.perf_counter() - t0:.1f}s")
         stageb_rows = load_stageb_csv()
         stagec_rows = load_stagec_csv()
@@ -2142,7 +2759,9 @@ def main(argv=None):
         return
 
     if not args.quick and not args.full:
-        p.error("pass --quick, --full, --stable-check, or --f5-edgescan")
+        p.error(
+            "pass --quick, --full, --stable-check, --f5-edgescan, or --hard-families"
+        )
 
     if args.quick:
         sizes = {
@@ -2154,6 +2773,7 @@ def main(argv=None):
             "F6": [100, 1000, 5000],
         }
         n_seeds = 2
+        f5_edgescan_sizes = (500, 1000, 2000)
     else:
         sizes = {
             "F1": [1000, 5000, 20000, 100000],
@@ -2164,6 +2784,7 @@ def main(argv=None):
             "F6": [1000, 10000, 100000],
         }
         n_seeds = 5
+        f5_edgescan_sizes = F5_EDGESCAN_SIZES
 
     env_info = _env_info()
     print("Environment:", env_info)
@@ -2171,12 +2792,20 @@ def main(argv=None):
     t0 = time.perf_counter()
     stageb_rows, _stageb_families = run_stage_b(sizes, n_seeds)
     stagec_rows = run_stage_c(sizes, n_seeds)
+    run_f5_edgescan(sizes=f5_edgescan_sizes)
+    hard_rows = run_stage_c_hard(sizes, n_seeds)
     elapsed = time.perf_counter() - t0
 
     stable_rows, f5_edgescan_rows = _load_supplementary_rows()
 
     _regenerate_plots_and_summary(
-        stageb_rows, stagec_rows, env_info, elapsed, stable_rows, f5_edgescan_rows
+        stageb_rows,
+        stagec_rows,
+        env_info,
+        elapsed,
+        stable_rows,
+        f5_edgescan_rows,
+        hard_rows,
     )
     print(f"\nTotal run time: {elapsed:.1f}s")
 

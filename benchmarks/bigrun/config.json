@@ -1,0 +1,22 @@
+{
+  "correctness": {
+    "n_small": [200, 500, 1000],
+    "n_large": [5000, 20000, 100000, 500000, 1000000],
+    "seeds": [0, 1, 2],
+    "orders": ["ascending", "descending", "random"],
+    "greedy": [true, false]
+  },
+  "complexity": {
+    "F1_sparse": {"c_values": [3, 5, 10], "sizes": [1000, 10000, 20000, 40000, 100000, 500000, 1000000], "seeds": [0, 1, 2, 3, 4]},
+    "F2_dense": {"densities": [0.1, 0.25, 0.5, 0.75, 1.0], "sizes": [50, 100, 200, 400, 800, 1600], "seeds": [0, 1, 2, 3, 4]},
+    "F3_bad_greedy": {"sizes": [50, 200, 800, 1600, 6400], "seeds": [0]},
+    "F4_nested_blossoms": {"sizes": [11, 41, 161, 321, 641], "seeds": [0]},
+    "F5_chains": {"n_params": [10000, 20000, 40000, 80000], "seeds": [0, 1, 2]},
+    "F6_long_path": {"sizes": [1000, 10000, 20000, 40000, 100000, 1000000], "seeds": [0]}
+  },
+  "edmonds_timeout_sec": 1800,
+  "edmonds_repeats": 3,
+  "edmonds_max_n": 45000,
+  "max_workers": null,
+  "notes": "null max_workers means 'use all but one CPU core'. Complexity stage: each graph's Edmonds time is the median of edmonds_repeats (>= 3) separate calls, so speedups at n >= 20000 are not single-sample; Edmonds is skipped for graphs with more than edmonds_max_n vertices (45000 covers F1/F6 n=40000 and F5 n_param=20000 -> 40284 vertices), and each call is capped at edmonds_timeout_sec (1800s; ~100-350s per call measured at n=20000 on the dev laptop). Gabow runs at every size. The correctness stage keeps its own Edmonds timeout (60s default)."
+}
