@@ -369,6 +369,12 @@ agreement on matching size, iteration count, and augmentations per
 iteration in every single case; the remaining 6 differ only in _which_
 same-size maximum matching comes back.
 
+**Correction (later):** with `tmp` left in this port's order (append plus
+the explicit stack already explores u_1 first, like the reference's
+`push_front` plus recursion), the faithful cross-check gives **6,320 of
+6,320 identical**; the 6 differences above came from the cross-check's own
+reversed `tmp` (see `docs/cpp_provenance.md` §2.3).
+
 **Conclusion.** The recheck fix is correct, necessary given the port's
 actual (LIFO) queue, and is kept — restoring FIFO order is a separate fix,
 applied afterward (see the FIFO-fix commit and `docs/cpp_provenance.md`).
