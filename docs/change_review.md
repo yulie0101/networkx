@@ -296,8 +296,8 @@ fixed there:
 
 ### Verified
 
-- **Test suite:** 445 tests in `test_matching.py` pass (374 of them for
-  this function), including named graphs with known matching size,
+- **Test suite:** 458 tests in `test_matching.py` pass (387 of them for
+  this function; 445 and 374 before the 13 climb tests of `68d14aa52`), including named graphs with known matching size,
   comparison with independent algorithms (Hopcroft–Karp on bipartite
   graphs, an exact tree algorithm), nested and chained blossoms, and
   inputs too deep for recursion.
@@ -355,7 +355,9 @@ fixed there:
 - **Dense graphs with an empty start.** With an empty starting matching
   (greedy off), our implementation is slower than NetworkX's Edmonds
   implementation on dense random graphs at n = 800: about 1.1 times at
-  10% density and 2.2–3.4 times at 25–100% density. This is about
+  10% density and 2.2–3.4 times at 25–100% density. _(Superseded: with
+  per-graph medians, as in P6b since `9d7b8e06f`, about 1.04 times at
+  10% and 2.2–3.1 times at 25–100%.)_ This is about
   constant factors in Python, not about the asymptotic bound.
 - **Greedy-start speedups on dense graphs depend on how runs are
   aggregated.** With the default greedy start, running times are bimodal:
@@ -364,11 +366,16 @@ fixed there:
   n = 400, 75% density, same `--full` run as P6/P9 (5 graphs):
   - _Per-graph medians:_ Edmonds/Gabow = 0.72×, 1.09×, 0.84×, 31× and
     42×. Greedy was already maximum on the two fast graphs; Gabow is
-    slower on 2 of 5 graphs, and the median over graphs is 0.84×.
-  - _Median over all timed runs_ (what P6/P9 plot): about 30×. Fast calls
+    slower on 2 of 5 graphs, and the median over graphs is 1.09×
+    (corrected; this passage first said 0.84×, which is the second
+    smallest of the five, not the median).
+  - _Median over all timed runs_ (what P6/P9 plotted before `9d7b8e06f`):
+    about 30×. Fast calls
     are repeated until 2 s have elapsed, so the two fast graphs
     contribute 100 of the 133 Gabow timings and dominate this median.
 
-  Both numbers come from the same measurements. P6/P9 should be read as
-  "typical run", not "typical graph"; per-graph medians would be the
-  fairer summary for bimodal points.
+  Both numbers come from the same measurements. _(Superseded: since
+  `9d7b8e06f`, P6, P6b and P9 plot the median of per-graph medians, with
+  min-max bars for bimodal points (per-graph speedups spanning more than
+  3×); this point is now plotted as 1.09× [0.72–42]. The open question is
+  only how to word it in the report.)_

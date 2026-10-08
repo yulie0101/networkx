@@ -73,6 +73,19 @@ Gabow median of 5) gives speedups of 8.6-72.9x (greedy off) and 26.5-119.6x
 `benchmarks/run_all.py --full`). Scripts marked "outside the repo" were
 one-off investigation scripts; their results are recorded in the docs listed.
 
+Code the experiments ran on:
+
+- **Stage C: code at `995308a86`** (before the climb fix; wall-clock
+  unchanged by the fix, ratios 0.93-1.10). This covers `run_all.py --full`
+  (8 Oct 2026, 03:00-05:11), the hard-family re-run for P8/P9
+  (09:18-09:50), the idle F5 re-measure (10:22) and `--stable-check`
+  (10:51-11:09). The commits after it up to `dedf986d8` changed only
+  docstrings, comments and tests, not the algorithm.
+- **Stage B: code at `68d14aa52`** (the climb fix; `run_all.py` at
+  `c0206db1f`), re-run with `run_all.py --stage-b` on 9 Oct 2026,
+  finishing at 02:19, just before those two commits. P1-P3 and P10 come from
+  this run.
+
 | Numbers                                     | Source                                                                                                                             |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Test counts                                 | `networkx/algorithms/tests/test_matching.py` (FIFO tests: commit `25c57985f`)                                                      |
