@@ -2,8 +2,9 @@
 
 Used to produce the worked examples in the report (Chapters 4-6). The
 algorithm is the final version on this branch -- FIFO Delta-bucket queue
-(``deque.popleft``), tightness re-check of popped EVEN-EVEN entries, union by
-size, ``tmp`` explored from u_1, and an error if an iteration gains nothing.
+(``deque.popleft``), tightness re-check of popped EVEN-EVEN entries, O(1)
+different-tree test before the climb, union by size, ``tmp`` explored from
+u_1, and an error if an iteration gains nothing.
 The only additions are logging statements (and, when logging is on, a
 parallel record of when and from where each bucket entry was inserted);
 control flow and the returned matching are unchanged, which ``--verify``
@@ -152,6 +153,7 @@ def gabow_instr(G, *, skip_greedy_init=False, log=None):
         path2 = {}
         strue = 0
         T = [v for v in G if v not in mate]
+        tree_root = {v: v for v in T}
         queue = _BucketQueue(n // 2 + 1)
         Delta = 0
 
@@ -313,6 +315,7 @@ def gabow_instr(G, *, skip_greedy_init=False, log=None):
                     bDelta[y] = bDelta[z] = Delta
                     parent[z] = y
                     parent[y] = x
+                    tree_root[y] = tree_root[z] = tree_root[x]
                     label[y] = "ODD"
                     label[z] = "EVEN"
                     T.append(y)
@@ -324,20 +327,26 @@ def gabow_instr(G, *, skip_greedy_init=False, log=None):
                     and (bd[x] - (Delta - bDelta[x])) + (bd[y] - (Delta - bDelta[y]))
                     == 0
                 ):
-                    strue += 1
-                    hx, hy = bx, by
-                    path1[hx] = strue
-                    path2[hy] = strue
-                    while (path1.get(hy) != strue and path2.get(hx) != strue) and (
-                        mate.get(hx) is not None or mate.get(hy) is not None
-                    ):
-                        if mate.get(hx) is not None:
-                            hx = base.find(parent[mate[hx]])
-                            path1[hx] = strue
-                        if mate.get(hy) is not None:
-                            hy = base.find(parent[mate[hy]])
-                            path2[hy] = strue
-                    if path1.get(hy) == strue or path2.get(hx) == strue:
+                    if tree_root[x] != tree_root[y]:
+                        # Different search trees: an augmenting path, decided
+                        # in O(1) (as in matching.py since 68d14aa52).
+                        is_blossom = False
+                    else:
+                        strue += 1
+                        hx, hy = bx, by
+                        path1[hx] = strue
+                        path2[hy] = strue
+                        while (path1.get(hy) != strue and path2.get(hx) != strue) and (
+                            mate.get(hx) is not None or mate.get(hy) is not None
+                        ):
+                            if mate.get(hx) is not None:
+                                hx = base.find(parent[mate[hx]])
+                                path1[hx] = strue
+                            if mate.get(hy) is not None:
+                                hy = base.find(parent[mate[hy]])
+                                path2[hy] = strue
+                        is_blossom = path1.get(hy) == strue or path2.get(hx) == strue
+                    if is_blossom:
                         b = hy if path1.get(hy) == strue else hx
                         if L:
                             L(
