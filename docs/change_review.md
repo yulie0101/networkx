@@ -268,6 +268,17 @@ because it was a real defect in the port.
   fail on the code before the fix (1,100 / 8,400 / 65,600 cross-tree
   steps on the brooms, 7-36 on the random graphs).
 
+#### Climb fix commits
+
+State before the fix: tag `before-climb-fix` (`dedf986d8`).
+
+| Hash        | What it changes                                                                    | Revert command         | Depends on                      |
+| ----------- | ---------------------------------------------------------------------------------- | ---------------------- | ------------------------------- |
+| `68d14aa52` | `matching.py`: O(1) different-tree test, climb counters, docstring fixes; 13 tests | `git revert 68d14aa52` | none (revert `c0206db1f` first) |
+| `c0206db1f` | Benchmarks: climb in the op totals, Stage B schema, `--stage-b`                    | `git revert c0206db1f` | `68d14aa52` (counter keys)      |
+| `4a0a6e860` | Docs: audit Sec. 9, this entry, `cpp_provenance.md` Sec. 2.8, overview             | `git revert 4a0a6e860` | none (documentation)            |
+| `0a2f96cec` | `tools/gabow_instr.py`: same O(1) test                                             | `git revert 0a2f96cec` | none                            |
+
 ### Not a bug in the algorithm: benchmark issues found along the way
 
 These were in the benchmark scripts, not in `matching.py`, and were
