@@ -175,6 +175,44 @@ iteration per remaining augmenting path once triggered, rather than one
 per distinct shortest-path length) -- so it is intentionally not offered
 in this port, not even as an opt-in.
 
+### 2.8 Deviation: O(1) different-tree test in Phase 1
+
+When Phase 1 pops a tight edge between two EVEN vertices, `GabowBeautified.h`
+always walks up from both ends in lock-step until the walks meet (a
+blossom) or both reach a root (an augmenting path):
+
+```cpp
+if (label[base(y)] == EVEN) { // chunk sets found_sap if an augmenting path is found
+  strue++;
+  node hx = base(x), hy = base(y);
+  path1[hx] = path2[hy] = strue;
+  while ((path1[hy] != strue && path2[hx] != strue) && (mate[hx] != nil || mate[hy] != nil)) {
+    if (mate[hx] != nil) { hx = base(parent[mate[hx]]); path1[hx] = strue; }
+    if (mate[hy] != nil) { hy = base(parent[mate[hy]]); path2[hy] = strue; }
+  }
+  ...
+```
+
+After the first augmenting path it keeps draining the bucket
+(`while ((e = PQ.delete_at_Delta(Delta)) != nil)`, and `return true` comes
+only after that loop), so every further tight edge between two different
+trees is walked up to both roots again. That walk costs the depth of the
+trees each time, `Theta(m * Delta)` in one iteration in the worst case.
+Confirmed on the compiled reference (a scratch copy of the Task B harness
+counting iterations of this loop): on the "broom" family from the report
+review (two search trees of depth about 2L joined by `K_{L,L}` at the
+leaves, started from its own matching) it takes 65,600, 518,400 and
+4,121,600 walk steps at L = 40, 80, 160 (m = 1,920, 7,040, 26,880), all
+for edges between different trees.
+
+This port records the root of every search tree and decides "different
+trees" in O(1) before walking; the walk is done only for blossoms, where
+it is O(size of the blossom) as in Gabow (Sec. 5). The result is
+unchanged: on the faithful-order cross-check (§2.3) the fixed copy is
+still identical to the compiled reference on all 6,320 cases, edge for
+edge. This is a deviation in cost only, and it removes a cost the
+reference also has.
+
 ## 3. Task B: the stale-bucket-entry bug, fully attributed
 
 An independent review found a correctness bug (52 failures out of 120,000

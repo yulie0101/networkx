@@ -51,6 +51,12 @@ look worse than the true total).
 
 ### 2a. The ancestor-climb / blossom-absorption charging argument (the subtlest item)
 
+**Correction (§9):** the argument below holds for climbs that end in a
+blossom, but not for climbs between two different search trees, which
+merge nothing and can repeat over the same vertices. That case was
+uncounted and could cost `Theta(m * Delta)` per iteration; it is fixed by
+an O(1) different-tree test. See §9.
+
 Lines 1614–1622 (ancestor climb) and 1554–1571 / 1831–1851 (blossom
 absorption) all walk up the _current_ blossom tree one matched-pair-hop at
 a time. Read in isolation, a single invocation's cost is bounded only by
@@ -424,13 +430,115 @@ start iteration counts (69/97/139 at n_param 5000/10000/20000) unchanged.
 
 ---
 
+## 9. Addendum: the Phase 1 climb, and a complete loop audit
+
+**What was missed.** When Phase 1 pops a tight edge between two EVEN
+vertices it walks up from both ends in lock-step (`path1`/`path2`/`strue`)
+until the walks meet (a blossom) or both reach a root (two different
+trees, i.e. an augmenting path). §2a charged every step of this walk to a
+vertex that is then merged into a blossom. That is true for blossoms, but
+a walk between two different trees merges nothing. After the first
+augmenting path Phase 1 keeps draining the current bucket (H must be
+complete), and every further tight edge between two trees walks up both
+trees again: O(depth) per edge, `Theta(m * Delta)` in one iteration in
+the worst case. The walk was not counted by `_counters`, so neither this
+audit nor the experiments could see it. `GabowBeautified.h` has the same
+walk with the same cost (`docs/cpp_provenance.md` §2.8).
+
+**Fix.** Phase 1 records the root of each search tree (`tree_root`, set
+for free vertices and in every grow step; blossoms only merge vertices of
+one tree). A tight EVEN–EVEN edge whose ends have different roots is an
+augmenting path, decided in O(1) without walking. The walk is now done
+only for blossoms. Counters `climb_steps_blossom` and
+`climb_steps_cross_tree` count the walk's steps; the latter is 0 since
+the fix and is kept as a check.
+
+**Why Phase 1 is now O((n + m) alpha(n)) per iteration.** A blossom walk
+from `bx` and `by` with common base `b` takes `max(a, c)` steps, where `a`
+and `c` are the numbers of blossoms on the two tree paths below `b`; all
+`a + c` of them are merged into the new blossom. A search starts with at
+most n blossoms (vertices) and every merge removes one, so all blossom
+walks of one iteration take at most n steps together, each doing O(1)
+`find` calls, O(alpha(n)) amortized. With the other loops in the table
+below (each O(n) or O(m) per iteration, times O(alpha(n)) for `find`),
+one iteration is O((n + m) alpha(n)), and the whole run
+`O(sqrt(n) * (n + m) * alpha(n))` as before.
+
+### Measurements
+
+Walk steps per edge **before the fix**, at the largest n of each Stage B
+family (median over seeds; identical for greedy on and off, because from
+the empty matching the first iteration ends at the greedy matching and
+walks 0 steps):
+
+| Family                                            | m            | between trees / m  | blossom / m   | as % of the counted ops (greedy on / off) |
+| ------------------------------------------------- | ------------ | ------------------ | ------------- | ----------------------------------------- |
+| F1, m = 3n, 5n, 10n (n = 100,000)                 | 0.3M-1M      | 0.10, 0.056, 0.029 | 0             | 2.6-3.3 / 0.5-1.3                         |
+| F2, 10 %-100 % (n = 800)                          | 32k-320k     | <= 0.005           | <= 0.001      | <= 0.6 / <= 0.1                           |
+| F3 (n = 1,600)                                    | 1,200        | 0.667              | 0             | 14.3 / 6.1                                |
+| F4 (n = 321)                                      | 480          | 0                  | 0.167         | 2.4 / 1.3                                 |
+| F5 (n = 80,180), our greedy / C++ edge-scan start | 228,970      | 0 / 0.152          | 0.001 / 0.170 | about 0                                   |
+| F6 (n = 100,000)                                  | 99,999       | 0                  | 0             | 0                                         |
+| Broom, L = 40, 80, 160                            | 1,920-26,880 | 34, 74, 153        | 0             | 1,190-5,170 %                             |
+
+So the earlier op counts missed at most about 14 % (F3) on the
+experiment families, but on the broom family the walk grows as `Theta(m *
+L)` = `Theta(L^3)` while `sqrt(n) * m` is `Theta(L^2.5)`.
+
+**After the fix:** walks between trees 0 everywhere; the broom family
+takes 0.34 s instead of 6.90 s at L = 160 (the compiled C++ reference
+walks the same 4,121,600 steps as our code did before). Same matchings
+edge for edge on 6,000 random runs, faithful cross-check 6,320 / 6,320
+identical. The Stage B rerun (op totals now include the walk) changed no
+iteration, edge-scan or search-step count; `total_ops / (sqrt(n) * m)`
+moved by at most 0.1 % except F4 (+1.3 %, its blossom walk is now
+counted). Wall-clock on F1 n = 10,000 and F2 n = 800, 50 %: within the
++-10 % run-to-run noise in two repeated comparisons (median ratios
+0.93-1.10 with no consistent direction), so Stage C was not re-run.
+
+### Loop audit (current `matching.py`)
+
+| Loop (line)                                                                | Iterates over                                                                | Counted by                                                            | Bound per iteration                                                                         |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `adj` comprehension (1424)                                                 | every vertex and its neighbors                                               | none                                                                  | once per call, O(n + m)                                                                     |
+| greedy start (1433, 1436)                                                  | vertices, then neighbors until a free one                                    | none                                                                  | once per call, O(n + m)                                                                     |
+| `_UnionFind.__init__` (1509)                                               | all vertices                                                                 | none                                                                  | O(n), two instances per iteration                                                           |
+| `_find_root` (1521, 1525)                                                  | path to the root, then path compression                                      | `uf_*_find_hops`                                                      | O(alpha(n)) amortized per call (union by size + path compression)                           |
+| `_BucketQueue.__init__` (1565)                                             | n/2 + 1 buckets                                                              | none                                                                  | O(n)                                                                                        |
+| `label`, `bd`, `bDelta`, `T`, `tree_root` (1586-1611)                      | all vertices / free vertices                                                 | none                                                                  | O(n)                                                                                        |
+| initial scan (1659, 1660)                                                  | free vertices and their neighbors                                            | `edge_scans`                                                          | O(m): each vertex's neighbors scanned when it becomes EVEN, once per search                 |
+| grow scan (1692)                                                           | neighbors of the new EVEN vertex                                             | `edge_scans`                                                          | inside the same O(m) total                                                                  |
+| `shrink_path` walk (1638) and its scan (1653)                              | blossoms on one side of the new blossom; neighbors of each newly EVEN vertex | `blossom_shrink_vertex_steps`, `edge_scans`                           | O(n) steps: each step merges a blossom; scans inside the O(m) total                         |
+| Delta loop (1665)                                                          | Delta = 0 .. n/2                                                             | `delta_phases`                                                        | O(n)                                                                                        |
+| bucket pop loop (1668)                                                     | entries of bucket Delta                                                      | `search_steps`                                                        | O(m): pops <= insertions (one per scan) + one empty pop per Delta                           |
+| **climb (1746)**                                                           | blossoms on the two tree paths                                               | **`climb_steps_blossom`, `climb_steps_cross_tree` (new)**             | **was unbounded (`Theta(m * Delta)`); now O(n): blossoms only, each step merges a blossom** |
+| `dunions` commit (1780)                                                    | unions recorded by `shrink_path`                                             | `uf_dbase_union_calls` (successful ones)                              | O(n): 4 entries per shrink step + 2 per blossom                                             |
+| build H: `rep`, `contracted_into` (1795, 1799)                             | vertices in T                                                                | none                                                                  | O(n)                                                                                        |
+| build H: tight-edge test (1802, 1804)                                      | vertices in T and their neighbors                                            | none                                                                  | O(m): sum of degrees over T                                                                 |
+| `edge_iter_for` (1855, 1856)                                               | members of an H-node and their neighbors, yielding H-edges                   | yielded edges: `search_steps`/`edge_scans`; skipped non-H edges: none | O(m): each H-node's generator is created once (pushed once)                                 |
+| `trace_HG` (1868)                                                          | H-edges of one augmenting path                                               | none                                                                  | O(n) total: paths are vertex-disjoint                                                       |
+| `trace_G` (1892)                                                           | pairs on one path inside a blossom                                           | none                                                                  | O(n) total: same                                                                            |
+| `augment` (1910, 1914)                                                     | edges / pairs of one path                                                    | `augmentations` (per path)                                            | O(n) total: same                                                                            |
+| Phase 2 roots (1919)                                                       | H-nodes                                                                      | none                                                                  | O(n)                                                                                        |
+| Phase 2 DFS (1928)                                                         | stack frames and their edges                                                 | `search_steps`, `edge_scans`                                          | O(m): each frame pushed once, each H-edge yielded once per end                              |
+| Phase 2 blossom walk (1969) and `endpoints_of_M` / `tmp` loops (1999-2004) | blossoms on the tree path                                                    | `blossom_shrink_vertex_steps`                                         | O(n): each step merges a blossom                                                            |
+| outer loop (2014)                                                          | iterations                                                                   | `iterations`                                                          | `O(sqrt(n))` iterations                                                                     |
+
+Every loop except the climb was already either counted or bounded by a
+one-line argument; the uncounted ones (H construction, `edge_iter_for`'s
+skipped edges, path tracing, re-initialization) are all O(n) or O(m) per
+iteration. The climb was the only loop that was neither counted nor
+bounded, so it is the only one that needed a new counter.
+
+---
+
 ## PROBLEM items (short list)
 
-| #   | Item                                                                                     | Status                                                                                                                    | Suggested fix (not applied)                                                                                                                                                                                                                                                                                                            |
-| --- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `tmp.insert(0, cur)` in Phase 2's blossom-absorption loop (§2c)                          | **Already fixed** (merged from Maya's change, now `tmp.append(cur)`)                                                      | None needed — already resolved. If ever reverted, replace with `append` + reverse the two downstream `for node in tmp:` loops, or use `collections.deque` with `appendleft` if front-order must be preserved for some future reason.                                                                                                   |
-| 2   | Per-iteration O(n) rebuild of `T`/`label`/`bd`/`bDelta`/`base`/`dbase`/bucket array (§3) | Known, disclosed, **not fixed**                                                                                           | Mirror the C++ reference: make `T` (and the label/dual bookkeeping keyed off it) a value threaded between `phase1()` calls instead of rebuilt, trimming/growing it incrementally; would reduce the O(n·iterations) term to O(n) amortized over the whole run. Nontrivial refactor — deferred per this task's scope (no logic changes). |
-| 3   | Ancestor-climb / blossom-absorption amortized bound (§2a)                                | Not a defect — but flagged because it's **unverified beyond re-deriving the standard argument from the code's structure** | If this bound matters for a real release, worth an explicit unit test or counter-based check (Stage B territory, deliberately not run here) that directly measures total climb-steps per iteration against n, rather than relying on this audit's structural argument alone.                                                           |
+| #   | Item                                                                                     | Status                                                                                             | Suggested fix (not applied)                                                                                                                                                                                                                                                                                                            |
+| --- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `tmp.insert(0, cur)` in Phase 2's blossom-absorption loop (§2c)                          | **Already fixed** (merged from Maya's change, now `tmp.append(cur)`)                               | None needed — already resolved. If ever reverted, replace with `append` + reverse the two downstream `for node in tmp:` loops, or use `collections.deque` with `appendleft` if front-order must be preserved for some future reason.                                                                                                   |
+| 2   | Per-iteration O(n) rebuild of `T`/`label`/`bd`/`bDelta`/`base`/`dbase`/bucket array (§3) | Known, disclosed, **not fixed**                                                                    | Mirror the C++ reference: make `T` (and the label/dual bookkeeping keyed off it) a value threaded between `phase1()` calls instead of rebuilt, trimming/growing it incrementally; would reduce the O(n·iterations) term to O(n) amortized over the whole run. Nontrivial refactor — deferred per this task's scope (no logic changes). |
+| 3   | Ancestor-climb / blossom-absorption amortized bound (§2a)                                | **Was a real PROBLEM, now fixed (§9)**: the argument failed for climbs between two different trees | Done: O(1) different-tree test, climb counters, and tests on the broom family and on random graphs (§9).                                                                                                                                                                                                                               |
 
 No other PROBLEM items found.
 
