@@ -20,8 +20,11 @@ lines and CRLF) to `GabowBeautified.h` from Kurt Mehlhorn's companion
 page for his and Nobahari's "Gabow's O(sqrt(n) m) Maximum Cardinality
 Matching Algorithm, Revisited" [2] implementation:
 
-- Companion page:
-  `https://people.mpi-inf.mpg.de/~mehlhorn/CompanionPageGenMatchingImplementation.html`
+- Companion page, titled "Gabow's General Matching Algorithm:
+  Implementation, Engineering, and Experiments":
+  `https://people.mpi-inf.mpg.de/~mehlhorn/CompanionPageGenMatchingImplementation.html`.
+  It lists `GabowBeautified.h` as "The Program (extracted from 1)", where
+  1 is ADM24 [3].
 - `GabowBeautified.h`:
   `https://people.mpi-inf.mpg.de/~mehlhorn/GabowBeautified.h` -- 19,539
   bytes, SHA-256
@@ -167,7 +170,7 @@ own u_1..u_k notation).
 `GabowBeautified.h`'s own timing driver (`solve()`) enables a single-
 augmenting-path-at-a-time fallback by default once few augmentations
 remain. That fallback is not part of the algorithm in [1] and, ported
-faithfully, would abandon the O(sqrt(n) _ m _ alpha(n)) bound (up to one
+faithfully, would abandon the `O(sqrt(n) * m * alpha(n))` bound (up to one
 iteration per remaining augmenting path once triggered, rather than one
 per distinct shortest-path length) -- so it is intentionally not offered
 in this port, not even as an opt-in.
@@ -201,11 +204,10 @@ directly against the compiled reference and found it was not quite right:
   specific `bd`/`bDelta`-based formulation. The 232,195-case sweep above
   is strong empirical evidence, not a proof.
 
-The recheck (§2.2) is correct and kept regardless -- it is necessary
-given this port's queue, independent of whether it would also be needed
-under FIFO. The FIFO fix (§2.1) is a separate, independently-applied and
-independently-verified change (see `docs/complexity_audit.md` §8 for its
-own complexity verification).
+The tightness re-check (§2.2) is correct; it was necessary with the
+port's former LIFO queue, and is kept as a safeguard. The FIFO fix (§2.1)
+is a separate, independently-applied and independently-verified change
+(see `docs/complexity_audit.md` §8 for its own complexity verification).
 
 ## References
 

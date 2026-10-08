@@ -20,7 +20,7 @@ Usage:
 
 Outputs under benchmarks/results/:
     stageB_*.csv, stageC_*.csv   (raw data, one row per run)
-    plots/P1_*.png ... plots/P7_*.png
+    plots/P1_*.png ... plots/P10_*.png  (no P7: superseded by P10)
     SUMMARY.md
 """
 
@@ -40,6 +40,8 @@ import matplotlib as mpl
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter, NullFormatter
 
 import networkx as nx
 
@@ -54,13 +56,8 @@ PLOTDIR.mkdir(parents=True, exist_ok=True)
 
 SEEDS = [0, 1, 2, 3, 4]  # >= 5 seeds per (family, n), as specified
 
-# Markers/linestyles cycled for black-and-white readability (not color alone).
+# Markers distinguish families, so plots stay readable without color.
 MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
-LINESTYLES = ["-", "--", "-.", ":", (0, (3, 1, 1, 1)), (0, (5, 2))]
-
-
-def _style(i):
-    return MARKERS[i % len(MARKERS)], LINESTYLES[i % len(LINESTYLES)]
 
 
 # ---------------------------------------------------------------------------
@@ -1050,6 +1047,42 @@ def _stable_check_table(stable_rows):
     return out
 
 
+def _fmt_x(v):
+    return f"{v:.3g}x"
+
+
+def _fmt_speedup(sp):
+    if sp is None:
+        return "--"
+    med, lo, hi, k = sp
+    if k == 1:
+        return _fmt_x(med)
+    return f"{_fmt_x(med)} [{lo:.3g}-{hi:.3g}]"
+
+
+def _speedup_table(stagec_rows):
+    """P6/P6b points (F1/F2): per-graph speedups, median [min-max]."""
+    out = [
+        "| family | n | greedy ON: speedup [per-graph min-max] | greedy OFF: speedup [min-max] | graphs | bimodal |",
+        "|---|---|---|---|---|---|",
+    ]
+    on = _stagec_speedup_series(stagec_rows, "greedy_on")
+    off = _stagec_speedup_series(stagec_rows, "greedy_off")
+    for fam in _sorted_families(set(on) | set(off)):
+        on_d, off_d = dict(on.get(fam, [])), dict(off.get(fam, []))
+        for n in sorted(set(on_d) | set(off_d)):
+            sp_on, sp_off = on_d.get(n), off_d.get(n)
+            k = (sp_on or sp_off)[3]
+            flags = [
+                name for name, sp in (("ON", sp_on), ("OFF", sp_off)) if _is_bimodal(sp)
+            ]
+            out.append(
+                f"| {fam} | {n} | {_fmt_speedup(sp_on)} | {_fmt_speedup(sp_off)} "
+                f"| {k} | {', '.join(flags)} |"
+            )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # F5 edge-scan-greedy start mode: an investigation found that the companion-
 # page C++ reference (GabowRevised.h's init(), not our own vertex-scan
@@ -1168,380 +1201,525 @@ def _fit_loglog(xs, ys):
 
 
 # ---------------------------------------------------------------------------
-# Plots P1-P7
+# Aggregation and plot style shared by all plots and SUMMARY.md
+# ---------------------------------------------------------------------------
+
+#: Families whose generator ignores the seed: at a given n every seed builds
+#: the same graph, so all their timed runs at that n belong to one graph.
+DETERMINISTIC_FAMILIES = frozenset(
+    {"F3_bad_greedy", "F4_nested_blossoms", "F5_chains_edgescan_hard", "F6_long_path"}
+)
+
+#: A point whose per-graph speedups span more than this factor (max / min)
+#: is treated as bimodal; the plots draw its per-graph min-max range.
+BIMODAL_SPREAD = 3.0
+
+
+def _graph_key(r):
+    return 0 if r["family"] in DETERMINISTIC_FAMILIES else r["seed"]
+
+
+def _per_graph_medians(rows):
+    """{graph: median runtime over that graph's timed runs}."""
+    by_graph = {}
+    for r in rows:
+        by_graph.setdefault(_graph_key(r), []).append(r["runtime_sec"])
+    return {k: statistics.median(v) for k, v in by_graph.items()}
+
+
+def _point_time(rows):
+    """Wall-clock time of one (family, n, algorithm) point: the median over
+    graphs of each graph's median over its timed runs. Fast calls are
+    repeated until a time budget elapses, so a plain median over all runs
+    would over-weight the easy graphs.
+    """
+    per_graph = _per_graph_medians(rows)
+    return statistics.median(per_graph.values()) if per_graph else None
+
+
+def _point_speedup(edmonds_rows, gabow_rows):
+    """Speedup of one point from per-graph speedups (Edmonds median / Gabow
+    median on the same graph, for the graphs timed with both). Returns
+    (median, min, max, number of graphs), or None.
+    """
+    pe = _per_graph_medians(edmonds_rows)
+    pg = _per_graph_medians(gabow_rows)
+    common = sorted(set(pe) & set(pg))
+    if not common:
+        return None
+    s = [pe[k] / pg[k] for k in common]
+    return statistics.median(s), min(s), max(s), len(s)
+
+
+def _is_bimodal(sp):
+    return sp is not None and sp[3] > 1 and sp[2] / sp[1] > BIMODAL_SPREAD
+
+
+#: One color, line style, marker and label per variant, used wherever
+#: variants are compared (P4, P8, P10).
+VARIANT_STYLE = {
+    "greedy_on": ("tab:blue", "-", "o", "Gabow, greedy ON"),
+    "greedy_off": ("tab:orange", "--", "s", "Gabow, greedy OFF"),
+    "edgescan": ("tab:green", "-.", "^", "Gabow, edge-scan start (C++ init)"),
+    "edmonds": ("tab:red", ":", "D", "Edmonds (max_weight_matching)"),
+}
+
+#: One color and marker per graph family, the same in every plot.
+FAMILY_ORDER = [
+    "F1_sparse_c3",
+    "F1_sparse_c5",
+    "F1_sparse_c10",
+    "F2_density10",
+    "F2_density25",
+    "F2_density50",
+    "F2_density75",
+    "F2_density100",
+    "F3_bad_greedy",
+    "F4_nested_blossoms",
+    "F5_chains_unshuffled",
+    "F5_chains_shuffled",
+    "F5_chains_edgescan",
+    "F5_chains_edgescan_hard",
+    "F6_long_path",
+]
+FAMILY_LABEL = {
+    "F1_sparse_c3": "F1 random sparse, m = 3n",
+    "F1_sparse_c5": "F1 random sparse, m = 5n",
+    "F1_sparse_c10": "F1 random sparse, m = 10n",
+    "F2_density10": "F2 random dense, 10%",
+    "F2_density25": "F2 random dense, 25%",
+    "F2_density50": "F2 random dense, 50%",
+    "F2_density75": "F2 random dense, 75%",
+    "F2_density100": "F2 complete graph",
+    "F3_bad_greedy": "F3 bad-greedy gadgets",
+    "F4_nested_blossoms": "F4 nested blossoms",
+    "F5_chains_unshuffled": "F5 chains",
+    "F5_chains_shuffled": "F5 chains, shuffled labels",
+    "F5_chains_edgescan": "F5 chains, edge-scan start",
+    "F5_chains_edgescan_hard": "F5 chains",
+    "F6_long_path": "F6 long path",
+}
+_FAMILY_COLOR_INDEX = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 1, 3, 5, 7, 9, 11, 13, 15]
+
+
+def _family_style(fam):
+    """(color, marker) for a family, stable across plots."""
+    i = FAMILY_ORDER.index(fam) if fam in FAMILY_ORDER else len(FAMILY_ORDER)
+    colors = plt.get_cmap("tab20").colors
+    return colors[_FAMILY_COLOR_INDEX[i % len(_FAMILY_COLOR_INDEX)]], MARKERS[
+        i % len(MARKERS)
+    ]
+
+
+def _family_label(fam):
+    return FAMILY_LABEL.get(fam, fam)
+
+
+def _sorted_families(families):
+    return sorted(
+        families,
+        key=lambda f: (FAMILY_ORDER.index(f) if f in FAMILY_ORDER else 99, f),
+    )
+
+
+def _legend_outside(ax, handles=None, **kw):
+    """Legend to the right of the axes, so it never covers data."""
+    kw.setdefault("fontsize", 8)
+    if handles is not None:
+        kw["handles"] = handles
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0, **kw)
+
+
+def _save(fig, outpath):
+    fig.savefig(outpath, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _tidy_log_x(ax, ns):
+    """On a log x axis spanning less than a factor of 30 (no or few powers
+    of ten), label the measured n values instead of crowded minor ticks."""
+    ns = sorted(set(ns))
+    if ns and ns[-1] / ns[0] < 30:
+        ax.set_xticks(ns)
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _pos: f"{v:,.0f}"))
+    ax.xaxis.set_minor_formatter(NullFormatter())
+
+
+def _bars_proxy():
+    return Line2D(
+        [],
+        [],
+        color="gray",
+        marker="|",
+        linestyle="none",
+        markersize=12,
+        label=f"per-graph min-max (bimodal: spread > {BIMODAL_SPREAD:g}x)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plots P1-P6, P8-P10 (P7 was removed: P10 supersedes it)
 # ---------------------------------------------------------------------------
 
 
-def plot_p1_iterations_vs_n(stageb_rows, outpath):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    families = sorted({r["family"] for r in stageb_rows if r["greedy_init"] is False})
-    for i, fam in enumerate(families):
-        sub = [
-            r for r in stageb_rows if r["family"] == fam and r["greedy_init"] is False
-        ]
-        by_n = sorted({r["n"] for r in sub})
-        meds = []
-        for n in by_n:
-            vals = [r["iterations"] for r in sub if r["n"] == n]
-            meds.append(statistics.median(vals))
-        marker, ls = _style(i)
-        ax.plot(by_n, meds, marker=marker, linestyle=ls, label=fam, markersize=5)
-    # Anchor c so the reference curve passes through the SMALLEST measured
-    # point (not the largest): anchoring at the largest point lets a flat
-    # (non-sqrt-growing) family look deceptively "under" a steep reference
-    # curve throughout the whole plot; anchoring at the smallest point
-    # means any family that actually keeps pace with sqrt(n) will visibly
-    # track the reference line, while flat families will visibly fall
-    # below it as n grows -- the more honest comparison for this plot's
-    # purpose (spotting sqrt(n)-like growth, not just not-contradicting it).
-    ns_all = sorted({r["n"] for r in stageb_rows})
-    if ns_all:
-        anchor_n = ns_all[0]
-        anchor_val = max(
-            1.0,
-            statistics.median(
-                [r["iterations"] for r in stageb_rows if r["n"] == anchor_n]
-            )
-            or 1,
-        )
-        c = anchor_val / math.sqrt(anchor_n)
-        ref = [c * math.sqrt(n) for n in ns_all]
+def _plot_stageb_metric(stageb_rows, outpath, metric, ylabel, title, reference=False):
+    """P1-P3: one line per family, Gabow from the empty matching (stage B
+    op counts), median over graphs at each n."""
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    off = [r for r in stageb_rows if r["greedy_init"] is False]
+    for fam in _sorted_families({r["family"] for r in off}):
+        sub = [r for r in off if r["family"] == fam]
+        ns = sorted({r["n"] for r in sub})
+        ys = []
+        for n in ns:
+            vals = [metric(r) for r in sub if r["n"] == n]
+            vals = [v for v in vals if v is not None]
+            ys.append(statistics.median(vals) if vals else float("nan"))
+        color, marker = _family_style(fam)
         ax.plot(
-            ns_all,
-            ref,
-            "k:",
-            label=f"reference c*sqrt(n), c anchored at n={anchor_n}",
-            linewidth=2,
+            ns, ys, marker=marker, color=color, label=_family_label(fam), markersize=5
         )
+    if reference:
+        # c*sqrt(n), anchored at the SMALLEST measured n: a family that keeps
+        # pace with sqrt(n) follows the line, a flat family falls below it.
+        ns_all = sorted({r["n"] for r in stageb_rows})
+        if ns_all:
+            anchor_n = ns_all[0]
+            anchor_val = max(
+                1.0,
+                statistics.median(
+                    [r["iterations"] for r in stageb_rows if r["n"] == anchor_n]
+                )
+                or 1,
+            )
+            c = anchor_val / math.sqrt(anchor_n)
+            ax.plot(
+                ns_all,
+                [c * math.sqrt(n) for n in ns_all],
+                "k:",
+                linewidth=2,
+                label="c * sqrt(n), anchored at the smallest n",
+            )
+        ax.set_yscale("log")
     ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("n (number of nodes)")
-    ax.set_ylabel("iterations (median over seeds)")
-    ax.set_title("P1: Iterations vs n (greedy_init=False), with c*sqrt(n) reference")
-    ax.legend(fontsize=6, ncol=2)
+    ax.set_xlabel("n [vertices]")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _legend_outside(ax)
+    _save(fig, outpath)
+
+
+def plot_p1_iterations_vs_n(stageb_rows, outpath):
+    _plot_stageb_metric(
+        stageb_rows,
+        outpath,
+        lambda r: r["iterations"],
+        "iterations [count], median over graphs",
+        "P1: Iterations vs n (Gabow, empty starting matching)",
+        reference=True,
+    )
 
 
 def plot_p2_ops_per_iteration_over_m(stageb_rows, outpath):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    families = sorted({r["family"] for r in stageb_rows if r["greedy_init"] is False})
-    for i, fam in enumerate(families):
-        sub = [
-            r for r in stageb_rows if r["family"] == fam and r["greedy_init"] is False
-        ]
-        by_n = sorted({r["n"] for r in sub})
-        ys = []
-        for n in by_n:
-            group = [r for r in sub if r["n"] == n]
-            vals = [
-                (r["total_ops"] / r["iterations"]) / r["m"]
-                for r in group
-                if r["iterations"] > 0 and r["m"] > 0
-            ]
-            ys.append(statistics.median(vals) if vals else float("nan"))
-        marker, ls = _style(i)
-        ax.plot(by_n, ys, marker=marker, linestyle=ls, label=fam, markersize=5)
-    ax.set_xscale("log")
-    ax.set_xlabel("n (number of nodes)")
-    ax.set_ylabel("(total_ops / iterations) / m  [dimensionless]")
-    ax.set_title("P2: Ops per iteration, normalized by m -- expect flat")
-    ax.legend(fontsize=6, ncol=2)
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _plot_stageb_metric(
+        stageb_rows,
+        outpath,
+        lambda r: (
+            (r["total_ops"] / r["iterations"]) / r["m"]
+            if r["iterations"] > 0 and r["m"] > 0
+            else None
+        ),
+        "operations per iteration / m [dimensionless]",
+        "P2: Work per iteration, normalized by m (expect flat)",
+    )
 
 
 def plot_p3_total_ops_over_bound(stageb_rows, outpath):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    families = sorted({r["family"] for r in stageb_rows if r["greedy_init"] is False})
-    for i, fam in enumerate(families):
-        sub = [
-            r for r in stageb_rows if r["family"] == fam and r["greedy_init"] is False
-        ]
-        by_n = sorted({r["n"] for r in sub})
-        ys = []
-        for n in by_n:
-            group = [r for r in sub if r["n"] == n]
-            vals = [
-                r["total_ops"] / (math.sqrt(r["n"]) * r["m"])
-                for r in group
-                if r["m"] > 0
-            ]
-            ys.append(statistics.median(vals) if vals else float("nan"))
-        marker, ls = _style(i)
-        ax.plot(by_n, ys, marker=marker, linestyle=ls, label=fam, markersize=5)
-    ax.set_xscale("log")
-    ax.set_xlabel("n (number of nodes)")
-    ax.set_ylabel("total_ops / (sqrt(n) * m)")
-    ax.set_title("P3: Total ops / bound(n,m) -- expect flat or decreasing")
-    ax.legend(fontsize=6, ncol=2)
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _plot_stageb_metric(
+        stageb_rows,
+        outpath,
+        lambda r: r["total_ops"] / (math.sqrt(r["n"]) * r["m"]) if r["m"] > 0 else None,
+        "total operations / (sqrt(n) * m) [dimensionless]",
+        "P3: Total work / (sqrt(n) * m) (expect flat or decreasing)",
+    )
+
+
+def _stagec_rows_for(stagec_rows, fam, variant, n=None):
+    if variant == "edmonds":
+        ok = lambda r: r["algorithm"] == "edmonds"
+    else:
+        gi = variant == "greedy_on"
+        ok = lambda r: r["algorithm"] == "gabow" and r["greedy_init"] is gi
+    return [
+        r
+        for r in stagec_rows
+        if r["family"] == fam and ok(r) and (n is None or r["n"] == n)
+    ]
 
 
 def _plot_p4_panel(ax, stagec_rows, families, title):
-    colors = {"gabow": "tab:blue", "edmonds": "tab:orange"}
-    greedy_ls = {True: "-", False: "--"}
-    i = 0
+    all_ns = set()
     for fam in families:
-        for greedy_init in (True, False):
-            sub = [
-                r
-                for r in stagec_rows
-                if r["family"] == fam
-                and r["algorithm"] == "gabow"
-                and r["greedy_init"] == greedy_init
-            ]
+        _color, marker = _family_style(fam)
+        for variant in ("greedy_on", "greedy_off", "edmonds"):
+            sub = _stagec_rows_for(stagec_rows, fam, variant)
             if not sub:
                 continue
-            by_n = sorted({r["n"] for r in sub})
-            meds = [
-                statistics.median([r["runtime_sec"] for r in sub if r["n"] == n])
-                for n in by_n
-            ]
-            slope, _intercept, r2, se = _fit_loglog(by_n, meds)
-            marker, _ls = _style(i)
-            label = (
-                f"{fam} gabow greedy={greedy_init} k={slope:.2f}+/-{se:.2f} R2={r2:.2f}"
-            )
-            ax.plot(
-                by_n,
-                meds,
-                marker=marker,
-                linestyle=greedy_ls[greedy_init],
-                color=colors["gabow"],
-                label=label,
-                markersize=5,
-            )
-            i += 1
-        sub_e = [
-            r for r in stagec_rows if r["family"] == fam and r["algorithm"] == "edmonds"
-        ]
-        if sub_e:
-            by_n = sorted({r["n"] for r in sub_e})
-            meds = [
-                statistics.median([r["runtime_sec"] for r in sub_e if r["n"] == n])
-                for n in by_n
-            ]
-            slope, _intercept, r2, se = _fit_loglog(by_n, meds)
-            marker, _ls = _style(i)
-            label = f"{fam} edmonds k={slope:.2f}+/-{se:.2f} R2={r2:.2f}"
-            ax.plot(
-                by_n,
-                meds,
-                marker=marker,
-                linestyle=":",
-                color=colors["edmonds"],
-                label=label,
-                markersize=5,
-            )
-            i += 1
+            ns = sorted({r["n"] for r in sub})
+            all_ns.update(ns)
+            ys = [_point_time([r for r in sub if r["n"] == n]) for n in ns]
+            color, ls, _m, _label = VARIANT_STYLE[variant]
+            ax.plot(ns, ys, marker=marker, linestyle=ls, color=color, markersize=5)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("n (number of nodes)")
-    ax.set_ylabel("median wall-clock time [s]")
+    _tidy_log_x(ax, all_ns)
+    ax.set_xlabel("n [vertices]")
+    ax.set_ylabel("wall-clock time [s], median over graphs")
     ax.set_title(title)
-    ax.legend(fontsize=5, ncol=1)
     ax.grid(True, which="both", alpha=0.3)
+    handles = [
+        Line2D([], [], color=c, linestyle=ls, label=label)
+        for key, (c, ls, _m, label) in VARIANT_STYLE.items()
+        if key != "edgescan"
+    ] + [
+        Line2D(
+            [],
+            [],
+            color="gray",
+            marker=_family_style(f)[1],
+            linestyle="none",
+            label=_family_label(f),
+        )
+        for f in families
+    ]
+    _legend_outside(ax, handles=handles)
 
 
 def plot_p4_wallclock_loglog(stagec_rows, outpath):
-    """Split into two panels (F1 sparse, F2 dense), each with its own
-    bound-implied reference slope in the title; within a panel, Gabow
-    greedy_init=True/False are distinguished by line style (solid/dashed),
-    Edmonds by dotted line and a separate color.
-    """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
-    f1_families = sorted(
-        {r["family"] for r in stagec_rows if r["family"].startswith("F1")}
-    )
-    f2_families = sorted(
-        {r["family"] for r in stagec_rows if r["family"].startswith("F2")}
-    )
+    """Wall-clock time vs n: color and line style = variant, marker = family."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(17, 6))
+    fams = {r["family"] for r in stagec_rows}
     _plot_p4_panel(
         ax1,
         stagec_rows,
-        f1_families,
-        "P4a: F1 sparse (expected slope: Gabow~1.5, Edmonds~3)",
+        _sorted_families(f for f in fams if f.startswith("F1")),
+        "P4a: Wall-clock time, F1 random sparse graphs",
     )
     _plot_p4_panel(
         ax2,
         stagec_rows,
-        f2_families,
-        "P4b: F2 dense (expected slope: Gabow~2.5, Edmonds~3)",
+        _sorted_families(f for f in fams if f.startswith("F2")),
+        "P4b: Wall-clock time, F2 random dense graphs",
     )
     fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _save(fig, outpath)
 
 
 def plot_p5_normalized_time(stagec_rows, outpath):
-    """Gabow rows are filtered to greedy_init=True (the real, user-facing
-    function) here -- see SUMMARY.md's Stage C section for the greedy
-    ON-vs-OFF comparison itself (item 1 of the follow-up request).
-    """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6))
-    families = sorted({r["family"] for r in stagec_rows})
-    for i, fam in enumerate(families):
-        sub_g = [
-            r
-            for r in stagec_rows
-            if r["family"] == fam
-            and r["algorithm"] == "gabow"
-            and r["greedy_init"] is True
-        ]
-        sub_e = [
-            r for r in stagec_rows if r["family"] == fam and r["algorithm"] == "edmonds"
-        ]
-        marker, ls = _style(i)
+    """Gabow (greedy ON, the default) time / (sqrt(n) * m) and Edmonds
+    time / n^3, per family."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
+    for fam in _sorted_families({r["family"] for r in stagec_rows}):
+        color, marker = _family_style(fam)
+        sub_g = _stagec_rows_for(stagec_rows, fam, "greedy_on")
+        sub_e = _stagec_rows_for(stagec_rows, fam, "edmonds")
         if sub_g:
-            by_n = sorted({r["n"] for r in sub_g})
+            ns = sorted({r["n"] for r in sub_g})
             ys = []
-            for n in by_n:
+            for n in ns:
                 group = [r for r in sub_g if r["n"] == n]
                 m = statistics.median([r["m"] for r in group])
-                t = statistics.median([r["runtime_sec"] for r in group])
-                ys.append(t / (math.sqrt(n) * m) if m > 0 else float("nan"))
-            ax1.plot(by_n, ys, marker=marker, linestyle=ls, label=fam, markersize=5)
+                ys.append(
+                    _point_time(group) / (math.sqrt(n) * m) if m else float("nan")
+                )
+            ax1.plot(ns, ys, marker=marker, color=color, markersize=5)
         if sub_e:
-            by_n = sorted({r["n"] for r in sub_e})
-            ys = [
-                statistics.median([r["runtime_sec"] for r in sub_e if r["n"] == n])
-                / (n**3)
-                for n in by_n
-            ]
-            ax2.plot(by_n, ys, marker=marker, linestyle=ls, label=fam, markersize=5)
+            ns = sorted({r["n"] for r in sub_e})
+            ys = [_point_time([r for r in sub_e if r["n"] == n]) / n**3 for n in ns]
+            ax2.plot(
+                ns,
+                ys,
+                marker=marker,
+                color=color,
+                markersize=5,
+                label=_family_label(fam),
+            )
     for ax, title, ylabel in [
-        (ax1, "Gabow: time / (sqrt(n)*m)", "time / (sqrt(n)*m)"),
-        (ax2, "Edmonds: time / n^3", "time / n^3"),
+        (
+            ax1,
+            "Gabow (greedy ON): time / (sqrt(n) * m)",
+            "time / (sqrt(n) * m) [s]",
+        ),
+        (ax2, "Edmonds: time / n^3", "time / n^3 [s]"),
     ]:
         ax.set_xscale("log")
-        ax.set_xlabel("n (number of nodes)")
+        ax.set_yscale("log")
+        ax.set_xlabel("n [vertices]")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
-        ax.legend(fontsize=6)
         ax.grid(True, which="both", alpha=0.3)
-    fig.suptitle(
-        "P5: Normalized runtime, Gabow greedy_init=True (expect flat or decreasing if bound holds)"
-    )
+    _legend_outside(ax2)
+    fig.suptitle("P5: Wall-clock time divided by the theoretical bound (expect flat)")
     fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _save(fig, outpath)
+
+
+def _plot_speedup_series(ax, series):
+    """series: {family: [(n, (median, min, max, k)), ...]}; draws lines and,
+    for bimodal points, per-graph min-max bars."""
+    any_bars = False
+    families = _sorted_families(series)
+    for k, fam in enumerate(families):
+        pts = sorted(series[fam])
+        color, marker = _family_style(fam)
+        # Small per-family x offset (3% per step on the log axis) so that
+        # min-max bars of families measured at the same n do not overlap.
+        shift = 1.03 ** (k - (len(families) - 1) / 2)
+        xs = [n * shift for n, _sp in pts]
+        ys = [sp[0] for _n, sp in pts]
+        ax.plot(
+            xs, ys, marker=marker, color=color, label=_family_label(fam), markersize=5
+        )
+        for n, sp in pts:
+            if _is_bimodal(sp):
+                any_bars = True
+                ax.errorbar(
+                    [n * shift],
+                    [sp[0]],
+                    yerr=[[sp[0] - sp[1]], [sp[2] - sp[0]]],
+                    fmt="none",
+                    ecolor=color,
+                    elinewidth=1.2,
+                    capsize=4,
+                    alpha=0.8,
+                )
+    ax.axhline(1.0, color="black", linewidth=1, linestyle=":", label="speedup = 1")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("n [vertices]")
+    ax.set_ylabel("speedup = Edmonds time / Gabow time [x]")
+    ax.grid(True, which="both", alpha=0.3)
+    handles, _labels = ax.get_legend_handles_labels()
+    if any_bars:
+        handles.append(_bars_proxy())
+    _legend_outside(ax, handles=handles)
+
+
+def _stagec_speedup_series(stagec_rows, variant):
+    series = {}
+    for fam in {r["family"] for r in stagec_rows}:
+        e_all = _stagec_rows_for(stagec_rows, fam, "edmonds")
+        g_all = _stagec_rows_for(stagec_rows, fam, variant)
+        for n in sorted({r["n"] for r in e_all} & {r["n"] for r in g_all}):
+            sp = _point_speedup(
+                [r for r in e_all if r["n"] == n], [r for r in g_all if r["n"] == n]
+            )
+            if sp:
+                series.setdefault(fam, []).append((n, sp))
+    return series
+
+
+def _hard_rows_for(hard_rows, fam, variant, n=None):
+    if variant == "edmonds":
+        ok = lambda r: r["algorithm"] == "edmonds"
+    else:
+        ok = lambda r: r["algorithm"] == "gabow" and r["variant"] == variant
+    return [
+        r
+        for r in hard_rows
+        if r["family"] == fam and ok(r) and (n is None or r["n"] == n)
+    ]
 
 
 def plot_p6_speedup(stagec_rows, outpath, greedy_init=True):
-    """Speedup = median Edmonds time / median Gabow time, for the given
-    Gabow greedy_init mode. greedy_init=True is the real, user-facing
-    function (P6); greedy_init=False (P6b) shows the same ratio with
-    greedy warm-start off -- see the "dense graphs, greedy OFF vs Edmonds"
-    SUMMARY.md section: unlike P6, P6b's ratio drops BELOW 1 for most F2
-    densities, i.e. Gabow is slower than Edmonds there, not faster. This
-    is a result to report, not a bug to fix.
-    """
-    fig, ax = plt.subplots(figsize=(8, 6))
-    families = sorted({r["family"] for r in stagec_rows})
-    for i, fam in enumerate(families):
-        sub_g = {
-            r["n"]: []
-            for r in stagec_rows
-            if r["family"] == fam
-            and r["algorithm"] == "gabow"
-            and r["greedy_init"] is greedy_init
-        }
-        sub_e = {
-            r["n"]: []
-            for r in stagec_rows
-            if r["family"] == fam and r["algorithm"] == "edmonds"
-        }
-        for r in stagec_rows:
-            if r["family"] != fam:
+    """Per-graph speedup of Gabow over Edmonds, F1/F2 (P6: greedy ON, the
+    default; P6b: greedy OFF)."""
+    variant = "greedy_on" if greedy_init else "greedy_off"
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    _plot_speedup_series(ax, _stagec_speedup_series(stagec_rows, variant))
+    name = "P6" if greedy_init else "P6b"
+    mode = "greedy ON" if greedy_init else "greedy OFF"
+    ax.set_title(f"{name}: Speedup of Gabow ({mode}) over Edmonds, median over graphs")
+    _save(fig, outpath)
+
+
+def plot_p8_hard_families(hard_rows, outpath):
+    """One panel per hard family: wall-clock time vs n for each Gabow
+    variant and Edmonds."""
+    families = _sorted_families({r["family"] for r in hard_rows})
+    fig, axes = plt.subplots(1, len(families), figsize=(5.2 * len(families), 4.8))
+    if len(families) == 1:
+        axes = [axes]
+    for ax, family in zip(axes, families):
+        all_ns = set()
+        for variant in ("greedy_on", "greedy_off", "edgescan", "edmonds"):
+            sub = _hard_rows_for(hard_rows, family, variant)
+            if not sub:
                 continue
-            if r["algorithm"] == "gabow" and r["greedy_init"] is greedy_init:
-                sub_g[r["n"]].append(r["runtime_sec"])
-            elif r["algorithm"] == "edmonds":
-                sub_e[r["n"]].append(r["runtime_sec"])
-        ns = sorted(set(sub_g) & set(sub_e))
-        if not ns:
-            continue
-        speedup = [
-            statistics.median(sub_e[n]) / statistics.median(sub_g[n]) for n in ns
-        ]
-        marker, ls = _style(i)
-        ax.plot(ns, speedup, marker=marker, linestyle=ls, label=fam, markersize=5)
-    ax.axhline(1.0, color="k", linestyle=":", linewidth=1, label="speedup = 1 (tie)")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("n (number of nodes)")
-    ax.set_ylabel("speedup = Edmonds time / Gabow time")
-    ax.set_title(
-        f"P6{'' if greedy_init else 'b'}: Speedup of Gabow (greedy_init={greedy_init}) over Edmonds"
-    )
-    ax.legend(fontsize=6)
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
-
-
-def plot_p7_f5_iterations(stageb_rows, outpath):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    paper_n = [10000, 20000, 40000]
-    paper_it = [24, 33, 47]
-    ax.plot(paper_n, paper_it, "k*", markersize=14, label="paper Table 1", zorder=5)
-    tags = [
-        ("F5_chains_unshuffled", True, "ours unshuffled, greedy ON"),
-        ("F5_chains_unshuffled", False, "ours unshuffled, greedy OFF"),
-        ("F5_chains_shuffled", True, "ours shuffled, greedy ON"),
-        ("F5_chains_shuffled", False, "ours shuffled, greedy OFF"),
-        # edge-scan-greedy has no True/False distinction (_initial_mate
-        # overrides greedy_init entirely) -- matched by family alone below.
-        (
-            "F5_chains_edgescan",
-            None,
-            "ours unshuffled, edge-scan greedy (C++ reference init())",
-        ),
+            ns = sorted({r["n"] for r in sub})
+            all_ns.update(ns)
+            ys = [_point_time([r for r in sub if r["n"] == n]) for n in ns]
+            color, ls, marker, _label = VARIANT_STYLE[variant]
+            ax.plot(ns, ys, marker=marker, linestyle=ls, color=color, markersize=6)
+            for x, y in zip(ns, ys):
+                if any(r.get("idle_rerun") for r in sub if r["n"] == x):
+                    ax.annotate(
+                        "idle re-run",
+                        (x, y),
+                        textcoords="offset points",
+                        xytext=(8, -4),
+                        fontsize=7,
+                        color=color,
+                    )
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        _tidy_log_x(ax, all_ns)
+        ax.set_xlabel("n [vertices]")
+        ax.set_ylabel("wall-clock time [s]")
+        ax.set_title(_family_label(family))
+        ax.grid(True, which="both", alpha=0.3)
+    handles = [
+        Line2D([], [], color=c, linestyle=ls, marker=m, label=label)
+        for c, ls, m, label in VARIANT_STYLE.values()
     ]
-    for i, (fam, greedy, label) in enumerate(tags):
-        sub = [
-            r
-            for r in stageb_rows
-            if r["family"] == fam and (greedy is None or r["greedy_init"] is greedy)
-        ]
-        if not sub:
-            continue
-        by_n = sorted({r["n"] for r in sub})
-        meds = [
-            statistics.median([r["iterations"] for r in sub if r["n"] == n])
-            for n in by_n
-        ]
-        marker, ls = _style(i)
-        ax.plot(by_n, meds, marker=marker, linestyle=ls, label=label, markersize=6)
-    ax.set_xscale("log")
-    ax.set_xlabel("actual n (G.number_of_nodes()) -- NOT the generator's n_param input")
-    ax.set_ylabel("iterations (median over seeds)")
-    ax.set_title(
-        "P7 (superseded by P10): F5 iterations vs actual n -- ours vs paper's Table 1"
+    fig.suptitle("P8: Hard graph families, wall-clock time of Gabow and Edmonds")
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=len(handles),
+        bbox_to_anchor=(0.5, -0.06),
+        fontsize=9,
+        frameon=False,
     )
-    ax.legend(fontsize=7)
-    ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _save(fig, outpath)
+
+
+def plot_p9_speedup_all_families(stagec_rows, hard_rows, outpath):
+    """Per-graph speedup of Gabow (greedy ON) over Edmonds for every family:
+    F1/F2 from stageC_raw.csv, F3-F6 from stageC_hardfamilies.csv."""
+    series = _stagec_speedup_series(stagec_rows, "greedy_on")
+    for fam in {r["family"] for r in hard_rows}:
+        e_all = _hard_rows_for(hard_rows, fam, "edmonds")
+        g_all = _hard_rows_for(hard_rows, fam, "greedy_on")
+        for n in sorted({r["n"] for r in e_all} & {r["n"] for r in g_all}):
+            sp = _point_speedup(
+                [r for r in e_all if r["n"] == n], [r for r in g_all if r["n"] == n]
+            )
+            if sp:
+                series.setdefault(fam, []).append((n, sp))
+    fig, ax = plt.subplots(figsize=(9, 6))
+    _plot_speedup_series(ax, series)
+    ax.set_title("P9: Speedup of Gabow (greedy ON) over Edmonds, all families")
+    _save(fig, outpath)
 
 
 def plot_p10_f5_edgescan(f5_edgescan_rows, outpath):
-    """Two panels: (left) iterations vs actual n, log-log, fitted slope
-    (expect ~0.5 if the sqrt(n) bound is tight on this family) plus the
-    paper's Table 1 points for comparison; (right) total_ops/(sqrt(n)*m)
-    vs n (expect flat if the per-iteration O(m*alpha(n)) bound holds).
-    """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6))
+    """F5 chains from the C++ edge-scan start: (a) iterations vs n with the
+    paper's Table 1 and the simulated C++ heuristic trigger; (b) total work
+    / (sqrt(n) * m)."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
     rows = [r for r in f5_edgescan_rows if r["family"] == "F5_chains_edgescan"]
     ns = sorted({r["n"] for r in rows})
     iters = [next(r["iterations"] for r in rows if r["n"] == n) for n in ns]
@@ -1550,207 +1728,72 @@ def plot_p10_f5_edgescan(f5_edgescan_rows, outpath):
         / (math.sqrt(n) * next(r["m"] for r in rows if r["n"] == n))
         for n in ns
     ]
-
+    color, ls, marker, _label = VARIANT_STYLE["edgescan"]
     slope, _i, r2, se = _fit_loglog(ns, iters)
     ax1.plot(
         ns,
         iters,
-        marker="o",
-        linestyle="-",
-        color="tab:blue",
-        label="ours, edge-scan greedy start",
+        marker=marker,
+        linestyle=ls,
+        color=color,
         markersize=7,
+        label=f"ours, all iterations (slope {slope:.2f} +/- {se:.2f}, R2 = {r2:.2f})",
     )
-    paper_n = [10000, 20000, 40000]
-    paper_it = [24, 33, 47]
-    ax1.plot(paper_n, paper_it, "k*", markersize=14, label="paper Table 1", zorder=5)
-    n_params = sorted({r["n_param"] for r in rows})
-    sim_n, sim_it = _simulate_heur_trigger_series(sizes=tuple(n_params))
+    sim_n, sim_it = _simulate_heur_trigger_series(
+        sizes=tuple(sorted({r["n_param"] for r in rows}))
+    )
     if sim_n:
         ax1.plot(
-            sim_n, sim_it, "gD", markersize=10, label="simulated heur trigger", zorder=5
+            sim_n,
+            sim_it,
+            "D",
+            color="tab:purple",
+            markersize=9,
+            label="ours, simulated C++ heuristic trigger",
         )
+    ax1.plot(
+        [10000, 20000, 40000],
+        [24, 33, 47],
+        "k*",
+        markersize=14,
+        label="paper, Table 1",
+        zorder=5,
+    )
     ax1.set_xscale("log")
     ax1.set_yscale("log")
-    ax1.set_xlabel("n (actual vertex count; paper Table 1 n is also vertices)")
-    ax1.set_ylabel("iterations")
-    ax1.set_title(
-        f"P10a: iterations vs n, edge-scan start (k={slope:.2f}+/-{se:.2f}, R2={r2:.2f}, expect ~0.5)"
-    )
-    ax1.legend(fontsize=8)
+    _tidy_log_x(ax1, ns)
+    ax1.set_yticks([20, 30, 50, 100, 200])
+    ax1.yaxis.set_major_formatter(FuncFormatter(lambda v, _pos: f"{v:g}"))
+    ax1.yaxis.set_minor_formatter(NullFormatter())
+    ax1.set_xlabel("n [vertices]")
+    ax1.set_ylabel("iterations [count]")
+    ax1.set_title("P10a: Iterations vs n (expect slope 0.5)")
+    ax1.legend(loc="upper left", fontsize=8)
     ax1.grid(True, which="both", alpha=0.3)
 
-    ax2.plot(
-        ns, ops_over_bound, marker="s", linestyle="-", color="tab:orange", markersize=7
-    )
-    ax2.set_xscale("log")
-    ax2.set_xlabel("n (actual vertex count)")
-    ax2.set_ylabel("total_ops / (sqrt(n) * m)")
-    ax2.set_title("P10b: ops / bound(n,m), edge-scan start (expect ~flat)")
-    ax2.grid(True, which="both", alpha=0.3)
-
-    fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
-
-
-HARD_VARIANT_STYLE = {
-    "greedy_on": ("tab:blue", "-", "o"),
-    "greedy_off": ("tab:orange", "--", "s"),
-    "edgescan": ("tab:green", "-.", "^"),
-    "edmonds": ("tab:red", ":", "D"),
-}
-
-
-def plot_p8_hard_families(hard_rows, outpath):
-    """One panel per hard family (F3/F4/F5-edgescan-hard/F6): median
-    wall-clock time vs n, for each Gabow variant (greedy on, greedy off,
-    F5-only: edge-scan start) and Edmonds. Log-log.
-    """
-    families = sorted({r["family"] for r in hard_rows})
-    fig, axes = plt.subplots(1, len(families), figsize=(6 * len(families), 5.5))
-    if len(families) == 1:
-        axes = [axes]
-    for ax, family in zip(axes, families):
-        sub = [r for r in hard_rows if r["family"] == family]
-        for algo_variant in sorted({(r["algorithm"], r["variant"]) for r in sub}):
-            algo, variant = algo_variant
-            label = "edmonds" if algo == "edmonds" else variant
-            color, ls, marker = HARD_VARIANT_STYLE.get(label, ("gray", "-", "o"))
-            pts = sorted(
-                {
-                    r["n"]
-                    for r in sub
-                    if r["algorithm"] == algo and r["variant"] == variant
-                }
+    ax2.plot(ns, ops_over_bound, marker=marker, linestyle=ls, color=color, markersize=7)
+    for r in rows:
+        # The dip at an odd-order clique is a property of the graph (one
+        # clique vertex stays free under the edge-scan start); see SUMMARY.
+        clique = max(2, int(math.sqrt(4 * int(r["n_param"]))))
+        if clique % 2:
+            ax2.annotate(
+                f"odd clique ({clique} vertices)",
+                (r["n"], r["total_ops"] / (math.sqrt(r["n"]) * r["m"])),
+                textcoords="offset points",
+                xytext=(10, 0),
+                fontsize=8,
+                color=color,
             )
-            meds = [
-                statistics.median(
-                    [
-                        r["runtime_sec"]
-                        for r in sub
-                        if r["n"] == n
-                        and r["algorithm"] == algo
-                        and r["variant"] == variant
-                    ]
-                )
-                for n in pts
-            ]
-            if pts:
-                ax.plot(
-                    pts,
-                    meds,
-                    marker=marker,
-                    linestyle=ls,
-                    color=color,
-                    label=label,
-                    markersize=6,
-                )
-                for x, y in zip(pts, meds):
-                    if any(
-                        r.get("idle_rerun")
-                        for r in sub
-                        if r["n"] == x
-                        and r["algorithm"] == algo
-                        and r["variant"] == variant
-                    ):
-                        ax.annotate(
-                            "idle re-run",
-                            (x, y),
-                            textcoords="offset points",
-                            xytext=(-60, 8),
-                            fontsize=7,
-                        )
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("n (actual vertex count)")
-        ax.set_ylabel("median runtime (s)")
-        ax.set_title(f"P8: {family}")
-        ax.legend(fontsize=8)
-        ax.grid(True, which="both", alpha=0.3)
+    ax2.set_xscale("log")
+    _tidy_log_x(ax2, ns)
+    ax2.set_xlabel("n [vertices]")
+    ax2.set_ylabel("total operations / (sqrt(n) * m) [dimensionless]")
+    ax2.set_title("P10b: Total work / (sqrt(n) * m) (expect flat)")
+    ax2.grid(True, which="both", alpha=0.3)
+    fig.suptitle("P10: F5 chains from the C++ edge-scan starting matching")
     fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
-
-
-def plot_p9_speedup_all_families(stagec_rows, hard_rows, outpath):
-    """Speedup (Edmonds median / Gabow median, greedy ON) vs n, one line
-    per family, F1/F2 (from stageC_raw.csv) plus F3/F4/F5-edgescan-hard/F6
-    (from stageC_hardfamilies.csv). y=1 reference line.
-    """
-    fig, ax = plt.subplots(figsize=(9, 6.5))
-    series = {}  # family -> (ns, speedups)
-    for family in sorted({r["family"] for r in stagec_rows}):
-        sub = [r for r in stagec_rows if r["family"] == family]
-        ns = sorted(
-            {
-                r["n"]
-                for r in sub
-                if r["algorithm"] == "gabow" and r["greedy_init"] is True
-            }
-        )
-        xs, ys = [], []
-        for n in ns:
-            g = [
-                r["runtime_sec"]
-                for r in sub
-                if r["n"] == n
-                and r["algorithm"] == "gabow"
-                and r["greedy_init"] is True
-            ]
-            e = [
-                r["runtime_sec"]
-                for r in sub
-                if r["n"] == n and r["algorithm"] == "edmonds"
-            ]
-            if g and e:
-                xs.append(n)
-                ys.append(statistics.median(e) / statistics.median(g))
-        if xs:
-            series[family] = (xs, ys)
-    for family in sorted({r["family"] for r in hard_rows}):
-        sub = [r for r in hard_rows if r["family"] == family]
-        ns = sorted(
-            {
-                r["n"]
-                for r in sub
-                if r["algorithm"] == "gabow" and r["variant"] == "greedy_on"
-            }
-        )
-        xs, ys = [], []
-        for n in ns:
-            g = [
-                r["runtime_sec"]
-                for r in sub
-                if r["n"] == n
-                and r["algorithm"] == "gabow"
-                and r["variant"] == "greedy_on"
-            ]
-            e = [
-                r["runtime_sec"]
-                for r in sub
-                if r["n"] == n and r["algorithm"] == "edmonds"
-            ]
-            if g and e:
-                xs.append(n)
-                ys.append(statistics.median(e) / statistics.median(g))
-        if xs:
-            series[family] = (xs, ys)
-
-    for i, (family, (xs, ys)) in enumerate(sorted(series.items())):
-        marker, ls = _style(i)
-        ax.plot(xs, ys, marker=marker, linestyle=ls, label=family, markersize=6)
-    ax.axhline(1.0, color="black", linewidth=1, linestyle="-", label="y=1 (no speedup)")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("n")
-    ax.set_ylabel("speedup (edmonds median / gabow greedy-ON median)")
-    ax.set_title("P9: speedup vs n, all families")
-    ax.legend(fontsize=7, ncol=2)
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    _save(fig, outpath)
 
 
 # ---------------------------------------------------------------------------
@@ -1992,11 +2035,11 @@ def write_summary(
 
     lines.append("## Plots\n")
     lines.append(
-        "P1 iterations vs n; P2 ops/iteration/m; P3 total ops/bound; P4 "
-        "wall-clock log-log; P5 normalized wall-clock; P6 / P6b speedup "
-        "(greedy ON / OFF); P7 F5 iterations vs Table 1 (**superseded by "
-        "P10**); P8 hard families vs Edmonds; P9 speedup, all families; P10 "
-        "F5 with the C++ edge-scan start.\n"
+        "P1 iterations vs n; P2 work per iteration / m; P3 total work / "
+        "(sqrt(n) * m); P4 wall-clock time; P5 wall-clock time / bound; P6 / "
+        "P6b speedup over Edmonds (greedy ON / OFF); P8 hard families vs "
+        "Edmonds; P9 speedup, all families; P10 F5 with the C++ edge-scan "
+        "start. P7 was removed: P10 supersedes it.\n"
     )
     lines.append("## P1 -- Iterations vs n\n")
     lines.append(
@@ -2062,10 +2105,10 @@ def write_summary(
 
     lines.append("## P4 -- Wall-clock, Gabow (greedy ON/OFF) vs Edmonds (log-log)\n")
     lines.append(
-        "Split into two panels, F1 (sparse) and F2 (dense), each with its "
-        "own bound-implied reference slope in the panel title; within a "
-        "panel, Gabow greedy_init=True/False are solid/dashed lines in the "
-        "same color, Edmonds is a dotted line in a different color.\n"
+        "Two panels, F1 (sparse) and F2 (dense). Color and line style give "
+        "the variant (Gabow greedy ON / OFF, Edmonds), the marker gives the "
+        "family. Each point is the median over graphs of each graph's median "
+        "time. Fitted log-log slopes:\n"
     )
     for fam in sorted({r["family"] for r in stagec_rows}):
         for algo, greedy_init in (("gabow", True), ("gabow", False), ("edmonds", None)):
@@ -2081,10 +2124,7 @@ def write_summary(
             ns = sorted({r["n"] for r in sub})
             if len(ns) < 2:
                 continue
-            meds = [
-                statistics.median([r["runtime_sec"] for r in sub if r["n"] == n])
-                for n in ns
-            ]
+            meds = [_point_time([r for r in sub if r["n"] == n]) for n in ns]
             slope, _i, r2, se = _fit_loglog(ns, meds)
             tag = f"{algo}/greedy={greedy_init}" if algo == "gabow" else algo
             lines.append(
@@ -2146,11 +2186,11 @@ def write_summary(
         "than a real c-dependent effect.\n"
         "\n**All three F1 n=20000 Edmonds points (c=3, c=5, c=10) are "
         "SINGLE-SAMPLE measurements (258.5s, 350.3s, 166.7s respectively) "
-        "and should be read as noisy** -- any P4a/P6/P6b speedup figure "
-        "computed from them (e.g. a ~140x P6 speedup at n=20000) inherits "
-        "that same uncertainty and could plausibly be off by a factor of "
-        "several. See the stable, repeated measurement at n=10000 directly "
-        "below for a number with real error bars.\n"
+        "and should be read as noisy** -- the P4a/P6/P6b points at "
+        "n=20000 rest on that one graph (seed 0) and inherit that "
+        "uncertainty; they could plausibly be off by a factor of several. "
+        "See the stable, repeated measurement at n=10000 directly below for "
+        "a number with real error bars.\n"
     )
 
     lines.append("### Stable F1 Edmonds check (n=10000, repeated, isolated process)\n")
@@ -2219,224 +2259,88 @@ def write_summary(
         "directly (not just operation counts).\n"
     )
 
-    lines.append("## P6 -- Speedup (Edmonds / Gabow)\n")
+    lines.append("## P6, P6b, P9 -- Speedup of Gabow over Edmonds\n")
     lines.append(
-        "Ratio of median Edmonds time to median Gabow (greedy_init=True) "
-        "time. An increasing trend with n is consistent with Gabow's "
-        "better asymptotic complexity actually manifesting in wall-clock "
-        "terms on this machine.\n"
-        "\nNote on F2_density100: per the Stage C bimodality section above, "
-        "greedy init alone was already the maximum matching on EVERY "
-        "measured seed at every n for F2_density100 with greedy_init=True "
-        "(augmentations == 0 throughout) -- so F2_density100's P6 line "
-        "measures the cost of the greedy warm-start pass itself, not of "
-        "Gabow's real search, since the real search never ran on any of "
-        "those graphs.\n"
+        "How each point is computed: for every graph, the median of its "
+        "timed runs, separately for Edmonds and for Gabow; that graph's "
+        "speedup is the ratio Edmonds / Gabow; the point is the median of "
+        "these per-graph speedups, with their min-max over graphs in "
+        "brackets. A plain median over all timed runs (used before) "
+        "over-weights easy graphs, because fast calls are repeated until "
+        f"{TIME_BUDGET_SEC}s elapse. F3-F6 build one fixed graph per n, so "
+        "all their runs count as one graph. A point whose per-graph speedups "
+        f"span more than {BIMODAL_SPREAD:g}x is marked bimodal; P6, P6b and "
+        "P9 draw its min-max range.\n"
+    )
+    lines.extend(_speedup_table(stagec_rows))
+    on = _stagec_speedup_series(stagec_rows, "greedy_on")
+    off = _stagec_speedup_series(stagec_rows, "greedy_off")
+    on_pts = [(f, n, sp) for f, pts in on.items() for n, sp in pts]
+    off_pts = [(f, n, sp) for f, pts in off.items() for n, sp in pts]
+    on_bimodal = [(f, n) for f, n, sp in on_pts if _is_bimodal(sp)]
+    on_slow = sorted((f, n) for f, n, sp in on_pts if sp[0] < 1)
+    off_f2 = [(f, n, sp) for f, n, sp in off_pts if f.startswith("F2")]
+    off_f2_slow = [(f, n) for f, n, sp in off_f2 if sp[0] < 1]
+    lines.append(
+        f"\n- Greedy ON: {len(on_bimodal)} of {len(on_pts)} points are "
+        "bimodal (on some graphs the greedy matching is already maximum and "
+        "Gabow finishes almost at once, on others it runs the full search; "
+        "see the Stage C bimodality section). Points with median speedup "
+        f"below 1: {', '.join(f'{f} n={n}' for f, n in on_slow) or 'none'}."
+    )
+    lines.append(
+        f"- Greedy OFF: Gabow is slower than Edmonds (speedup < 1) at "
+        f"{len(off_f2_slow)} of {len(off_f2)} F2 points; every F1 point is "
+        "a speedup > 1."
+        if all(sp[0] > 1 for f, n, sp in off_pts if f.startswith("F1"))
+        else f"- Greedy OFF: Gabow is slower than Edmonds (speedup < 1) at "
+        f"{len(off_f2_slow)} of {len(off_f2)} F2 points."
+    )
+    lines.append(
+        "\nNote on F2_density100: greedy init alone was already the maximum "
+        "matching on every measured graph at every n with greedy ON "
+        "(augmentations == 0 throughout), so its greedy-ON line measures the "
+        "cost of the greedy pass itself, not of Gabow's search.\n"
     )
 
     lines.append("## Dense graphs, greedy OFF vs Edmonds (plain result, not a bug)\n")
-    lines.append(
-        "P4b already shows this in log-log slope form; stated plainly "
-        "here with numbers. With greedy_init=OFF (an empty starting "
-        "matching, the directly paper-comparable mode -- see the citation "
-        "check above), Gabow is SLOWER than Edmonds at every F2 density "
-        "except the sparsest (10%), by a roughly constant factor that does "
-        "NOT shrink with density (same ~n^2 slope as Edmonds in P4b, just "
-        "a larger constant). This is a real result about THIS "
-        "implementation's constant factors on dense random graphs when "
-        "forced to find every augmenting path from scratch -- it is not "
-        "evidence against the O(sqrt(n)*m*alpha(n)) bound (which bounds "
-        "Gabow relative to its OWN n and m, not relative to Edmonds' "
-        'constant), and it is not being "fixed" here, per instructions:\n'
-    )
+    dense = []
     for d in (10, 25, 50, 75, 100):
         fam = f"F2_density{d}"
-        sub_on = [
-            r["runtime_sec"]
-            for r in stagec_rows
-            if r["family"] == fam
-            and r["n"] == 800
-            and r["algorithm"] == "gabow"
-            and r["greedy_init"] is True
-        ]
-        sub_off = [
-            r["runtime_sec"]
-            for r in stagec_rows
-            if r["family"] == fam
-            and r["n"] == 800
-            and r["algorithm"] == "gabow"
-            and r["greedy_init"] is False
-        ]
-        sub_e = [
-            r["runtime_sec"]
-            for r in stagec_rows
-            if r["family"] == fam and r["n"] == 800 and r["algorithm"] == "edmonds"
-        ]
-        if not (sub_on and sub_off and sub_e):
-            continue
-        m_on, m_off, m_e = (
-            statistics.median(sub_on),
-            statistics.median(sub_off),
-            statistics.median(sub_e),
-        )
+        e = _stagec_rows_for(stagec_rows, fam, "edmonds", 800)
+        g_on = _stagec_rows_for(stagec_rows, fam, "greedy_on", 800)
+        g_off = _stagec_rows_for(stagec_rows, fam, "greedy_off", 800)
+        if e and g_on and g_off:
+            dense.append((fam, d, e, g_on, g_off, _point_speedup(e, g_off)))
+    slower = [f"{d}%" for _f, d, _e, _on, _off, sp in dense if sp[0] < 1]
+    lines.append(
+        "P4b shows this as slopes; here with numbers at n=800 (per-graph "
+        "medians, then the median over graphs). With greedy OFF (an empty "
+        "starting matching, as in the paper), Gabow is slower than Edmonds "
+        f"at density {', '.join(slower) or 'none'} -- a constant factor of "
+        "this Python implementation when it must find every augmenting path "
+        "from scratch, not evidence against the O(sqrt(n) * m * alpha(n)) "
+        "bound, which compares Gabow with its own n and m, not with "
+        "Edmonds' constant.\n"
+    )
+    for fam, _d, e, g_on, g_off, sp_off in dense:
+        sp_on = _point_speedup(e, g_on)
         lines.append(
-            f"- {fam}, n=800: gabow greedy_OFF={m_off:.4g}s, "
-            f"gabow greedy_ON={m_on:.4g}s, edmonds={m_e:.4g}s "
-            f"(greedy_OFF/edmonds = {m_off / m_e:.2f}x)"
+            f"- {fam}, n=800: Edmonds {_point_time(e):.4g}s, Gabow greedy OFF "
+            f"{_point_time(g_off):.4g}s, greedy ON {_point_time(g_on):.4g}s; "
+            f"speedup OFF {_fmt_speedup(sp_off)}, ON {_fmt_speedup(sp_on)}"
         )
     lines.append(
-        "\nSee plots/P6b_speedup_greedy_off.png (speedup = Edmonds time / "
-        "Gabow greedy_OFF time, same axes as P6 but with a y=1 reference "
-        "line added): P6 (greedy ON, the real default) stays above 1 and "
-        "grows with n for every density; P6b drops below 1 for density "
-        ">=25% once the greedy warm-start is turned off.\n"
-    )
-
-    lines.append(
-        "## P7 -- F5 (short-and-long chains) iterations vs paper Table 1 "
-        "(superseded by P10)\n"
-    )
-    sim_trigger = {}
-    if f5_edgescan_rows:
-        ed_rows = [r for r in f5_edgescan_rows if r["family"] == "F5_chains_edgescan"]
-        n_params = tuple(sorted({r["n_param"] for r in ed_rows}))
-        sim_n, sim_it = _simulate_heur_trigger_series(sizes=n_params)
-        n_to_nparam = {r["n"]: r["n_param"] for r in ed_rows}
-        sim_trigger = {n_to_nparam[n]: it for n, it in zip(sim_n, sim_it)}
-    paper_its = [it for _n, _m, it in PAPER_SHORT_AND_LONG]
-    sim_its = [
-        sim_trigger.get(PAPER_N_TO_NPARAM[n]) for n, _m, _it in PAPER_SHORT_AND_LONG
-    ]
-    if sim_its == paper_its:
-        sim_verdict = (
-            "the simulated trigger iteration reproduces Table 1's "
-            f"{'/'.join(map(str, paper_its))} EXACTLY"
-        )
-    else:
-        sim_verdict = (
-            f"the simulated trigger iterations are {sim_its} against Table 1's "
-            f"{paper_its} (NOT an exact match)"
-        )
-    lines.append(
-        "**Superseded by P10.** The gap between our F5 iteration counts and "
-        "Table 1's #it column is explained: the companion C++ driver that "
-        "produced Table 1 (a) starts from its own edge-scan greedy "
-        "(GabowBeautified.h's `init()`; identical in GabowRevised.h), not "
-        "from an empty matching or our vertex-scan greedy, and (b) switches "
-        "to its `heur` fallback once few augmentations remain, which "
-        "finishes in one further, uncounted sweep. Reproducing both on our "
-        f"graphs, {sim_verdict}; see the table below and P10. The rest of "
-        "this section is kept as a record of the earlier investigation.\n"
-    )
-    lines.append(
-        "**x-axis check**: confirmed from the code -- "
-        "`_measure_stageB` records `n = G.number_of_nodes()` (the actual "
-        "built graph's node count), never the generator's own `n_param` "
-        "input; P7's x-axis is therefore already actual n, not n_param "
-        "(the axis label has been corrected to say so explicitly -- it "
-        'previously said "n_param" in the label text even though the '
-        "plotted values were always actual n). The `n_param` column is "
-        "kept in stageB_raw.csv alongside `n` for every row (not just F5) "
-        "so this is auditable directly from the raw data.\n"
-    )
-    lines.append(
-        "**Citation check**: arXiv:2603.22909 (Mehlhorn & Nobahari, \"Gabow's "
-        'O(sqrt(n) m) Maximum Cardinality Matching Algorithm, Revisited") '
-        "IS the paper this project ports -- re-fetched directly from the PDF "
-        "(not a lossy HTML summarizer, which gave internally-inconsistent "
-        "numbers on a first attempt) to get exact quotes:\n"
-        '- (a) Section 4: "Initially,M is empty." (p.18 of the PDF; OCR '
-        "renders the M without a space) -- confirmed, matches our "
-        "`greedy_init=False` setting, NOT `greedy_init=True`. The comparison "
-        "below is therefore most meaningful for the `greedy_init=False` rows.\n"
-        '- (b) Section 5 (p.18): "They consist of a complete graph with '
-        "about sqrt(n) vertices, O(n) short chains of length seven all "
-        "attached to a fixed vertex z of the complete graph, and, in the "
-        "case of short and long chains, one chain of length 2i+1 each "
-        "attached to z, where 4<=i<=sqrt(n). We refer to [ADM24] for more "
-        'details." -- the paper itself defers the exact construction to '
-        "[ADM24] (Ansaripour, Danaei, Mehlhorn 2024) and does not give a "
-        "closed-form n->(vertex count, edge count) formula; see the P7 "
-        "section below for what this means for our generator's sizing.\n"
-        "- (c) NOT addressed: the paper text does not state whether Table "
-        "1's #it column includes the final unsuccessful search. This could "
-        "not be confirmed either way from the paper text -- stated here "
-        "rather than assumed.\n"
-    )
-    lines.append(
-        "\n**Size check**: the table below shows paper n=20000, m=56000 "
-        "lines up almost exactly with OUR actual graph at n_param=10000 "
-        "(actual n=20080, m=56970 -- within 1.7% on n, 1.7% on m), and "
-        "likewise paper n=40000/m=114000 against our n_param=20000 (actual "
-        'n=40284, m=114351). So the paper\'s "n" in Table 1 IS the total '
-        "vertex count, directly comparable to our `n = G.number_of_nodes()` "
-        "-- it is OUR GENERATOR's `n_param` input that is the construction "
-        "parameter, at roughly n_param = n/2 for THIS generator (not a "
-        "property of the paper's construction; the paper's own prose "
-        "describes chain counts as O(n)/O(sqrt(n)) in the asymptotic sense, "
-        "not as a literal formula, so there is no contradiction in n_param "
-        "landing at n/2 here). The original run set n_param equal to the "
-        "paper's n literally (10000/20000/40000), which is why our "
-        "x=20080/40284/80180 points sat about 2x to the right of the "
-        "paper's n=10000/20000/40000 stars on P7 -- effectively comparing "
-        "against the wrong row, not a uniform 2x error at every row (see "
-        "table). The table maps each paper row to the n_param with the same "
-        "vertex count (paper n=10000/20000/40000 -> n_param=5000/10000/"
-        "20000) and lists our actual n and m, our full-run iteration count "
-        "with the edge-scan start, and the simulated `heur` trigger "
-        "iteration.\n"
-    )
-    lines.extend(_f5_size_comparison(f5_edgescan_rows or [], sim_trigger))
-    lines.append(
-        "\nOur m lands within about 2% of the "
-        "paper's m at n=20000 and n=40000, and within about 29% at the "
-        "smallest size (n=10000, where integer truncation in the "
-        "generator's sqrt/floor formulas has the most relative effect) -- "
-        "supporting the same construction (up to the two sources' "
-        "independent choices of short-chain length -- 7 in the prose above "
-        "vs. 8 in the companion C++ reference this project ported from, a "
-        "discrepancy already noted in verify_complexity.chains_graph's "
-        "docstring and not re-litigated here), not a different graph "
-        "family.\n"
-        "\n**Size alone does not explain the iteration gap; the starting "
-        "matching and the C++ `heur` fallback do**: at correctly matched "
-        "vertex counts, our empty-start (`greedy_init=False`) and "
-        "vertex-scan-greedy runs need only 1-3 iterations (listing below), "
-        "because both starts leave almost no chain endpoints exposed. With "
-        "the C++ reference's edge-scan start the full run needs 69/97/139 "
-        "iterations at these sizes (P10), and the C++ driver stops counting "
-        "when `heur` triggers -- which is where Table 1's 24/33/47 come "
-        "from (table above).\n"
-    )
-    sub = [r for r in stageb_rows if r["family"].startswith("F5")]
-    if sub:
-        for fam in ["F5_chains_unshuffled", "F5_chains_shuffled"]:
-            for greedy in (True, False):
-                s = [
-                    r for r in sub if r["family"] == fam and r["greedy_init"] is greedy
-                ]
-                if s:
-                    ns = sorted({r["n"] for r in s})
-                    its = [
-                        statistics.median([r["iterations"] for r in s if r["n"] == n])
-                        for n in ns
-                    ]
-                    lines.append(
-                        f"- {fam}, greedy_init={greedy}: n={ns} -> iterations={its}"
-                    )
-    lines.append(
-        "- paper Table 1: n=[10000, 20000, 40000] -> iterations=[24, 33, 47]\n"
-        "\n**Verdict**: the gap to Table 1 is explained, not open: Table "
-        "1's #it counts iterations up to the C++ `heur` trigger, starting "
-        "from the edge-scan greedy (table above). For the full iteration "
-        "count and the sqrt(n) fit see P10, which supersedes this section.\n"
+        "\nSee plots/P6b_speedup_greedy_off.png (greedy OFF) against "
+        "plots/P6_speedup.png (greedy ON, the default).\n"
     )
 
     lines.append("## P8/P9 -- Hard families (F3-F6) vs Edmonds\n")
     if hard_rows:
         lines.append(
-            "Median wall-clock per (family, n) over all seeds; `n` is the actual "
-            "vertex count. Edmonds is capped: once one call exceeds "
+            "Wall-clock per (family, n); each of these families builds one "
+            "fixed graph per n, so times are medians over its runs. `n` is the "
+            "actual vertex count. Edmonds is capped: once one call exceeds "
             f"{HARD_EDMONDS_TIMEOUT_SEC:.0f}s it is disabled for larger n in that "
             "family (`k` = number of Edmonds samples; k=1 points are single, "
             "noisy measurements). F5's `edgescan` variant starts from the C++ "
@@ -2453,8 +2357,9 @@ def write_summary(
         lines.append("|---|---|---|---|---|---|---|---|---|---|")
         for fam, n in sorted({(r["family"], r["n"]) for r in hard_rows}):
             sub = [r for r in hard_rows if r["family"] == fam and r["n"] == n]
-            e = [r["runtime_sec"] for r in sub if r["algorithm"] == "edmonds"]
-            e_med = statistics.median(e) if e else None
+            e_rows = [r for r in sub if r["algorithm"] == "edmonds"]
+            e = [r["runtime_sec"] for r in e_rows]
+            e_med = _point_time(e_rows) if e_rows else None
             for variant in ("greedy_on", "greedy_off", "edgescan"):
                 g = [
                     r
@@ -2463,7 +2368,8 @@ def write_summary(
                 ]
                 if not g:
                     continue
-                g_med = statistics.median(r["runtime_sec"] for r in g)
+                g_med = _point_time(g)
+                sp = _point_speedup(e_rows, g) if e_rows else None
                 it = statistics.median(r["iterations"] for r in g)
                 g_idle = any(r.get("idle_rerun") for r in g)
                 e_idle = any(
@@ -2478,7 +2384,7 @@ def write_summary(
                 lines.append(
                     f"| {fam} | {n} | {g[0]['n_param']} | {variant} | {it:g} | {g_med:.4g} | "
                     + (
-                        f"{e_med:.4g} | {len(e)} | {e_med / g_med:.1f}x |"
+                        f"{e_med:.4g} | {len(e)} | {sp[0]:.1f}x |"
                         if e
                         else "-- | 0 | -- |"
                     )
@@ -2496,7 +2402,8 @@ def write_summary(
             "An investigation into why F5 (greedy OFF or ON) did not reproduce the "
             "paper's Table 1 iteration counts found the cause: a simulation of "
             "the C++ heuristic trigger reproduces Table 1 (24/33/47) exactly at "
-            "all three sizes (see the P7 table). The iterations it counts start "
+            "all three sizes (see the Table 1 comparison below). The iterations "
+            "it counts start "
             "from a different initial matching: the companion-page C++ reference (GabowBeautified.h's `init()`, "
             "identical in GabowRevised.h; called "
             "unconditionally before the phase loop in the driver that produced "
@@ -2518,7 +2425,8 @@ def write_summary(
         lines.append(
             "Units: `n` below (and P10's x-axis) is the ACTUAL vertex count "
             "G.number_of_nodes() for our points; the paper's Table 1 `n` is "
-            "likewise a vertex count (see the P7 size check), so both are "
+            "likewise a vertex count (its m values match our graphs at the "
+            "same vertex counts; see the Table 1 comparison below), so both are "
             "plotted on the same axis. `n_param` is only our generator's "
             "construction input.\n"
         )
@@ -2583,6 +2491,41 @@ def write_summary(
             "iteration, which is a property of that specific graph family and "
             "greedy algorithm pairing, not evidence against the bound itself.\n"
         )
+        sim_trigger = {}
+        if f5_edgescan_rows:
+            ed_rows = [
+                r for r in f5_edgescan_rows if r["family"] == "F5_chains_edgescan"
+            ]
+            n_params = tuple(sorted({r["n_param"] for r in ed_rows}))
+            sim_n, sim_it = _simulate_heur_trigger_series(sizes=n_params)
+            n_to_nparam = {r["n"]: r["n_param"] for r in ed_rows}
+            sim_trigger = {n_to_nparam[n]: it for n, it in zip(sim_n, sim_it)}
+        paper_its = [it for _n, _m, it in PAPER_SHORT_AND_LONG]
+        sim_its = [
+            sim_trigger.get(PAPER_N_TO_NPARAM[n]) for n, _m, _it in PAPER_SHORT_AND_LONG
+        ]
+        if sim_its == paper_its:
+            sim_verdict = (
+                "the simulated trigger iteration reproduces Table 1's "
+                f"{'/'.join(map(str, paper_its))} EXACTLY"
+            )
+        else:
+            sim_verdict = (
+                f"the simulated trigger iterations are {sim_its} against Table 1's "
+                f"{paper_its} (NOT an exact match)"
+            )
+        lines.append("### Comparison with the paper's Table 1\n")
+        lines.append(
+            "Each paper row is matched to the n_param with the same vertex "
+            "count (paper n=10000/20000/40000 -> n_param=5000/10000/20000). "
+            "Table 1's #it counts iterations until the C++ driver's `heur` "
+            "fallback triggers, starting from the C++ edge-scan greedy "
+            "(GabowBeautified.h's `init()`, identical in GabowRevised.h); the "
+            "last column simulates that trigger on our per-iteration "
+            f"augmentation counts: {sim_verdict}.\n"
+        )
+        lines.extend(_f5_size_comparison(f5_edgescan_rows or [], sim_trigger))
+        lines.append("")
     else:
         lines.append(
             "- Not run in this invocation (pass `f5_edgescan_rows` from "
@@ -2703,7 +2646,7 @@ def _regenerate_plots_and_summary(
     f5_edgescan_rows = f5_edgescan_rows or []
     hard_rows = hard_rows if hard_rows is not None else _load_hard_rows()
     hard_rows = _apply_f5_idle_rerun(hard_rows)
-    # Folded into the general stageb_rows used by P1/P2/P3/P7 so the new
+    # Folded into the general stageb_rows used by P1/P2/P3 so the new
     # F5_chains_edgescan family shows up there too (more data, same plots);
     # P10 below is specific to it.
     stageb_rows_all = stageb_rows + f5_edgescan_rows
@@ -2722,8 +2665,7 @@ def _regenerate_plots_and_summary(
     plot_p6_speedup(
         stagec_rows, PLOTDIR / "P6b_speedup_greedy_off.png", greedy_init=False
     )
-    plot_p7_f5_iterations(stageb_rows_all, PLOTDIR / "P7_f5_iterations_vs_paper.png")
-    n_plots = 8
+    n_plots = 7
     if hard_rows:
         plot_p8_hard_families(hard_rows, PLOTDIR / "P8_hard_families_vs_edmonds.png")
         plot_p9_speedup_all_families(

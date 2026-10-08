@@ -111,8 +111,8 @@ because it was a real defect in the port.
 - **Root cause (order):** a blossom step in Phase 2 makes the odd
   vertices u_1, …, u_k on the tree path even again (u_1 is closest to
   the base b(x)). Gabow's Fig. 4, line 6, explores them in that order:
-  "for i ← 1 to k do find_ap(u_i) /\* process u_i in order of increasing
-  depth \*/". The C++ reference does this with `tmp.push_front` plus
+  `for i ← 1 to k do find_ap(u_i) /* process u_i in order of increasing depth */`.
+  The C++ reference does this with `tmp.push_front` plus
   recursion. Our port replaces the recursion with an explicit LIFO
   stack, which reverses push order: with `append`, u_1 ends on top and is
   explored first, as in Fig. 4. The old `insert(0, …)` put u_k on top, so
