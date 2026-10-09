@@ -890,10 +890,10 @@ def _reconstruct_edmonds_disabled_hard(csv_name, timeout_sec):
 
 # ---------------------------------------------------------------------------
 # Stable F1 Edmonds check: the --full run's n=20000 Edmonds points are each
-# a SINGLE sample (the slow-call repetition policy stops after one call past
-# 10s), and one of them (258.5s) disagreed with an earlier calibration call
-# on the identical graph/seed (69.3s) by 3.7x -- see "69s calibration vs
-# ~260s measured" in SUMMARY.md. This runs a smaller, cheaper n (10000, where
+# a SINGLE sample per graph (the slow-call repetition policy stops after one
+# call past 10s), and in an earlier run one of them (258.5s) disagreed with a
+# calibration call on the identical graph/seed (69.3s) by 3.7x. This runs a
+# smaller, cheaper n (10000, where
 # Edmonds is fast enough to afford real repetition) with REAL repeats for
 # both algorithms, intended to be run in an isolated, otherwise-idle process
 # so the numbers are not contending with anything else on the machine.
@@ -1062,6 +1062,56 @@ def _fmt_speedup(sp):
     if k == 1:
         return _fmt_x(med)
     return f"{_fmt_x(med)} [{lo:.3g}-{hi:.3g}]"
+
+
+def _f1_edmonds_coverage(stagec_rows):
+    """SUMMARY.md lines describing which F1 Edmonds points exist at the
+    largest Edmonds size, computed from the data (each slow Edmonds call is
+    timed once; a family is disabled for further seeds/sizes once one call
+    exceeds TIMEOUT_SEC)."""
+    out = []
+    fams = sorted(
+        {r["family"] for r in stagec_rows if r["family"].startswith("F1_")},
+        key=lambda f: int(f.rsplit("c", 1)[1]),
+    )
+    for fam in fams:
+        ed = [
+            r for r in stagec_rows if r["family"] == fam and r["algorithm"] == "edmonds"
+        ]
+        if not ed:
+            continue
+        n = max(r["n"] for r in ed)
+        at_n = sorted(
+            ((r["seed"], r["runtime_sec"]) for r in ed if r["n"] == n),
+            key=lambda t: t[0],
+        )
+        times = ", ".join(f"seed {s}: {t:.1f}s" for s, t in at_n)
+        over = any(t > TIMEOUT_SEC for _s, t in at_n)
+        why = (
+            f"a call exceeded the {TIMEOUT_SEC:.0f}s threshold, so the remaining "
+            "seeds and larger n were skipped"
+            if over
+            else f"every call stayed under the {TIMEOUT_SEC:.0f}s threshold, so "
+            "all seeds ran"
+        )
+        out.append(
+            f"- {fam}: n={n}, {len(at_n)} graph(s), each timed once ({times}); "
+            f"{why}. The plotted point is the median over these graphs: "
+            f"{statistics.median(t for _s, t in at_n):.1f}s."
+        )
+    out.append(
+        "\nEach of these is a single multi-minute call per graph on a shared "
+        "machine and should be read as noisy (see the repeated check at n=10000 "
+        "below). History: an earlier run of this suite (before the FIFO fix) "
+        "had single seed-0 points of 258.5s, 350.3s and 166.7s for c=3, 5 and "
+        "10, and its c=3 call disagreed with a calibration call on the same "
+        "graph (69.3s) by 3.7x; those numbers are superseded by the rows "
+        "above. A still earlier version of this script also shared the "
+        'disable flag across c-values (keyed by "F1"), which skipped '
+        "Edmonds for c=5 and c=10 entirely; it is keyed by the full family "
+        "name since.\n"
+    )
+    return out
 
 
 def _speedup_table(stagec_rows):
@@ -2142,60 +2192,7 @@ def write_summary(
     )
 
     lines.append("### F1 Edmonds coverage (c=3 vs c=5 vs c=10)\n")
-    lines.append(
-        "An earlier version of this script keyed `edmonds_disabled` by "
-        '`fam_key` ("F1", from `family.split("_")[0]`) instead of the '
-        "full family string. F1_sparse_c3's single measured Edmonds call at "
-        "n=20000 (seed=0) took 258.5s, over the 120s disable-threshold, "
-        'which set `edmonds_disabled["F1"]=True` -- and because that one '
-        "flag was shared across c=3/c=5/c=10, it silently skipped Edmonds "
-        "for F1_sparse_c5 and F1_sparse_c10 at EVERY size, including n=1000 "
-        "and n=5000 where Edmonds is fast and was never actually slow for "
-        "those c-values. This was a benchmark-harness bug, not a reflection "
-        "of Edmonds' real performance at those sizes -- fixed by keying the "
-        "disable flag on the full family name instead (each c-value now "
-        "disables independently), and a supplementary run collected the "
-        "missing data without re-running the full suite:\n"
-        "- F1_sparse_c5: n=1000 and n=5000, all 5 seeds; n=20000, seed=0 "
-        "only (350.3s, over the 120s threshold, correctly disabled for "
-        "larger n in this family afterward -- same policy as c=3).\n"
-        "- F1_sparse_c10: n=1000 and n=5000, all 5 seeds; n=20000, seed=0 "
-        "only (166.7s, same reasoning).\n"
-        "- F1_sparse_c3's own existing data is unaffected by the fix: its "
-        "n=20000 point was legitimately down to 1 seed already (its own "
-        "seed=0 call was the one that exceeded 120s), not a side-effect of "
-        "the bug.\n"
-    )
-    lines.append(
-        "\n**69s calibration vs ~260s measured, explained**: "
-        "`_calibrate_f1_edmonds_cap` timed ONE untimed Edmonds call on "
-        "f1_random_sparse(20000, 3, seed=0) before Stage C started and got "
-        "69.3s; Stage C's own timed call on the SAME construction "
-        "(identical n, c, seed -- nx.gnm_random_graph is deterministic "
-        "given a seed, so this is provably the same graph and the same "
-        "deterministic algorithm) got 258.5s, a 3.7x difference with no "
-        "difference in input. The two calls differ only in WHEN they ran: "
-        "the calibration ran first, on an otherwise-idle machine; the Stage "
-        "C call ran roughly an hour into the same --full process, after "
-        "accumulating Stage B/C state (rows, matplotlib figures, GC "
-        "pressure) and whatever else was happening on this machine at the "
-        "time. Because a call this slow only gets ONE repetition (the "
-        "policy documented above), there is no within-point averaging to "
-        "smooth this out -- single-sample timings of multi-minute calls on "
-        "a shared, non-isolated machine should be read as having a wide "
-        "and not-well-characterized error bar, not as a precise number. "
-        "F1_sparse_c5 (350.3s) and F1_sparse_c10 (166.7s) at the same n and "
-        "seed=0 show the same kind of spread with no consistent trend "
-        "against c, consistent with this being measurement noise rather "
-        "than a real c-dependent effect.\n"
-        "\n**All three F1 n=20000 Edmonds points (c=3, c=5, c=10) are "
-        "SINGLE-SAMPLE measurements (258.5s, 350.3s, 166.7s respectively) "
-        "and should be read as noisy** -- the P4a/P6/P6b points at "
-        "n=20000 rest on that one graph (seed 0) and inherit that "
-        "uncertainty; they could plausibly be off by a factor of several. "
-        "See the stable, repeated measurement at n=10000 directly below for "
-        "a number with real error bars.\n"
-    )
+    lines.extend(_f1_edmonds_coverage(stagec_rows))
 
     lines.append("### Stable F1 Edmonds check (n=10000, repeated, isolated process)\n")
     if stable_rows:
@@ -2215,10 +2212,10 @@ def write_summary(
         )
         lines.extend(_stable_check_table(stable_rows))
         lines.append(
-            "\nCompare to the single-sample n=20000 points above (e.g. c=3: "
-            "edmonds=258.5s in one call): the n=10000 numbers here are "
-            "medians of repeated runs and give the order of magnitude of the "
-            "speedup without relying on a single noisy multi-minute call.\n"
+            "\nCompare to the n=20000 points above, where each Edmonds "
+            "graph was timed once: the n=10000 numbers here are medians of "
+            "repeated runs and give the order of magnitude of the speedup "
+            "without relying on single multi-minute calls.\n"
         )
     else:
         lines.append(

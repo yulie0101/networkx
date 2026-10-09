@@ -490,8 +490,10 @@ experiment families, but on the broom family the walk grows as `Theta(m *
 L)` = `Theta(L^3)` while `sqrt(n) * m` is `Theta(L^2.5)`.
 
 **After the fix:** walks between trees 0 everywhere; the broom family
-takes 0.34 s instead of 6.90 s at L = 160 (the compiled C++ reference
-walks the same 4,121,600 steps as our code did before). Same matchings
+takes 0.33 s instead of 6.46 s at L = 160 (1,282 nodes; median of 5
+runs each, `benchmarks/presentation_plots.py --measure-broom`; an earlier
+single measurement gave 0.34 s and 6.90 s). The compiled C++ reference
+walks the same 4,121,600 steps as our code did before. Same matchings
 edge for edge on 6,000 random runs, faithful cross-check 6,320 / 6,320
 identical. The Stage B rerun (op totals now include the walk) changed no
 iteration, edge-scan or search-step count; `total_ops / (sqrt(n) * m)`

@@ -89,7 +89,9 @@ BROOM = {
     "steps_before": [65600, 518400, 4121600],
     "steps_after": [0, 0, 0],
 }
-BROOM_TIME_L160 = (6.90, 0.34)  # seconds before / after, L = 160
+#: An earlier single run at L = 160 (before / after, seconds). The charts and
+#: captions use the median of repeated runs from broom_timing.csv instead.
+BROOM_TIME_L160_SINGLE = (6.90, 0.34)
 
 captions = []
 
@@ -210,7 +212,7 @@ def _time_series(rows, family, key):
     return out
 
 
-def _speedup(rows, family, key, n):
+def _speedup(rows, family, key, n, full=False):
     e = [r for r in rows if r["family"] == family and r["n"] == n]
     g = [
         r
@@ -223,6 +225,8 @@ def _speedup(rows, family, key, n):
     ]
     e = [r for r in e if r["algorithm"] == "edmonds"]
     sp = R._point_speedup(e, g)
+    if full:
+        return sp
     return sp[0] if sp else None
 
 
@@ -420,11 +424,12 @@ def comparison_charts(stagec, hard):
 
 
 def _fmt_x(v):
-    return f"{v:.2g}x" if v < 10 else f"{v:,.0f}x"
+    return f"{v:.3g}x" if v < 10 else f"{v:,.0f}x"
 
 
 def bar_chart(name, title, subtitle, bars, footnote=None):
-    """Horizontal grouped bars. bars: (label, off, on, note_on)."""
+    """Horizontal grouped bars. bars: (label, off, on, note_on, on_range),
+    on_range = (min, max) of the per-graph speedups, or None."""
     fig, ax = plt.subplots(figsize=(12, 6.75))
     fig.suptitle(title, fontsize=20, fontweight="bold", y=0.97)
     ax.set_title(subtitle, fontsize=14, color="#444444", pad=12)
@@ -443,12 +448,30 @@ def bar_chart(name, title, subtitle, bars, footnote=None):
         label="Gabow (greedy OFF)",
     )
     ax.barh([y - h / 2 for y in ys], on, h, color=BLUE, label="Gabow (greedy ON)")
-    xmax = max(off + on)
+    if any(b[4] for b in bars):
+        ax.plot([], [], color=GREY, lw=2, label="range over graphs (greedy ON)")
+    xmax = max(off + on + [b[4][1] for b in bars if b[4]])
     pad = xmax * 0.01
     for y, b in zip(ys, bars):
         ax.text(b[1] + pad, y + h / 2, _fmt_x(b[1]), va="center", fontsize=13)
-        text = _fmt_x(b[2]) + (f"  ({b[3]})" if b[3] else "")
-        ax.text(b[2] + pad, y - h / 2, text, va="center", fontsize=13)
+        right = b[2]
+        text = _fmt_x(b[2])
+        if b[4]:
+            lo, hi = b[4]
+            ax.errorbar(
+                b[2],
+                y - h / 2,
+                xerr=[[b[2] - lo], [hi - b[2]]],
+                fmt="none",
+                ecolor=GREY,
+                elinewidth=2,
+                capsize=5,
+            )
+            right = max(right, hi)
+            text += f" [{_fmt_x(lo)}-{_fmt_x(hi)}]"
+        if b[3]:
+            text += f"  ({b[3]})"
+        ax.text(right + pad, y - h / 2, text, va="center", fontsize=13)
     ax.axvline(1, color=ORANGE, linewidth=3, label="1 = same speed as Edmonds")
     ax.text(
         1,
@@ -471,8 +494,15 @@ def bar_chart(name, title, subtitle, bars, footnote=None):
     ax.set_xlabel("Speedup [times faster than Edmonds]", fontsize=16)
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:,.0f}"))
     handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=3, fontsize=14, frameon=False)
-    bottom = 0.08
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=2 if len(labels) > 3 else len(labels),
+        fontsize=14,
+        frameon=False,
+    )
+    bottom = 0.13 if len(labels) > 3 else 0.08
     if footnote:
         fig.text(0.01, 0.075, footnote, fontsize=12, color="#444444", ha="left")
         bottom = 0.12
@@ -533,6 +563,7 @@ def speedup_bars(stagec, hard):
                 sp[False][0],
                 sp[True][0],
                 "",
+                None,
             )
         )
         nums.append(
@@ -550,10 +581,20 @@ def speedup_bars(stagec, hard):
         label = title.split(" (")[0] + ("*" if single else "")
         off = _speedup(hard, fam, "gabow_off", n)
         on = _speedup(hard, fam, "gabow_on", n)
-        bars.append((f"{label}\n({n:,} nodes)", off, on, ""))
+        note = ""
+        if fam == "F5_chains_edgescan_hard":
+            ed_t = _time_series(hard, fam, "edmonds")[n]
+            cpp_t = _time_series(hard, fam, "gabow_cpp")[n]
+            note = f"authors' worst-case start: {ed_t / cpp_t:.1f}x"
+        bars.append((f"{label}\n({n:,} nodes)", off, on, note, None))
         nums.append(
             f"{label}, {n:,} nodes: greedy OFF {_fmt_x(off)}, greedy ON {_fmt_x(on)}"
             + (" (single Edmonds run)" if single else "")
+            + (
+                f"; {note} (Gabow {cpp_t:.1f} s vs Edmonds {ed_t:.1f} s)"
+                if note
+                else ""
+            )
         )
     foot = (
         "* based on a single Edmonds run (Edmonds is too slow at this size to"
@@ -565,7 +606,8 @@ def speedup_bars(stagec, hard):
     bar_chart(
         "A4a_speedup_sparse_hard",
         title,
-        "Largest size where both ran (sparse: repeated runs); above 1 = Gabow is faster",
+        "Sparse: 10,000 nodes, repeated runs (stable check); hard families:"
+        " largest size where both ran",
         bars,
         foot,
     )
@@ -585,16 +627,20 @@ def speedup_bars(stagec, hard):
             r["n"] for r in stagec if r["family"] == fam and r["algorithm"] == "edmonds"
         )
         off = _speedup(stagec, fam, "gabow_off", n)
-        on = _speedup(stagec, fam, "gabow_on", n)
+        on_full = _speedup(stagec, fam, "gabow_on", n, full=True)
+        on = on_full[0]
+        rng = (on_full[1], on_full[2]) if on_full[3] > 1 else None
         note = (
             "greedy alone already optimal"
             if _all_greedy_optimal(stagec, fam, n)
             else ""
         )
-        bars.append((f"Density {d}%\n({n:,} nodes)", off, on, note))
+        bars.append((f"Density {d}%\n({n:,} nodes)", off, on, note, rng))
         nums.append(
             f"Density {d}%, {n:,} nodes: greedy OFF {_fmt_x(off)}, greedy ON"
-            f" {_fmt_x(on)}" + (f" ({note} on all graphs)" if note else "")
+            f" {_fmt_x(on)}"
+            + (f" [per-graph {_fmt_x(rng[0])}-{_fmt_x(rng[1])}]" if rng else "")
+            + (f" ({note} on all graphs)" if note else "")
         )
     title = "How many times faster than Edmonds - Dense random graphs"
     bar_chart(
@@ -763,14 +809,27 @@ def broom_chart():
         {"color": BLUE, "ls": "-", "marker": "s", "label": "after the fix"},
     )
     _finish(fig, ax, "B5_broom", "Graph size [nodes]", "Steps up the trees [millions]")
-    b, a = BROOM_TIME_L160
+    timing = _broom_medians()
+    big = BROOM["n"][-1]
+    single = BROOM_TIME_L160_SINGLE
+    if timing and ("before", big) in timing:
+        b, a = timing["before", big], timing["after", big]
+        tsrc = (
+            f" (at {big:,} nodes the run took {_sec(b)} before and {_sec(a)}"
+            f" after, median of {timing['reps']} runs; an earlier single"
+            f" measurement gave {single[0]:.2f} s and {single[1]:.2f} s)."
+        )
+    else:
+        tsrc = (
+            f" (an earlier single measurement at {big:,} nodes: {single[0]:.2f} s"
+            f" before, {single[1]:.2f} s after)."
+        )
     _caption(
         "B5_broom",
         title,
         "Before the fix every edge between two search trees walked up both trees,"
         " which grows faster than the bound; the fix decides this in one step, so"
-        f" the walk disappears (at {BROOM['n'][-1]:,} nodes the run took {b} s"
-        f" before and {a} s after).",
+        " the walk disappears" + tsrc,
         [
             f"{n:,} nodes (m = {m:,}): before {sb:,} steps, after {sa}"
             for n, m, sb, sa in zip(
@@ -880,6 +939,30 @@ def measure_broom(reps=5, tag="before-climb-fix"):
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
+
+
+def _broom_medians():
+    """{(version, n): median seconds, "reps": runs per point} from
+    results/broom_timing.csv, or None if it is missing."""
+    import csv
+
+    path = R.OUTDIR / BROOM_TIMING_CSV
+    if not path.exists():
+        return None
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    ns = sorted({int(r["n"]) for r in rows})
+    out = {
+        (v, n): statistics.median(
+            float(r["runtime_sec"])
+            for r in rows
+            if r["version"] == v and int(r["n"]) == n
+        )
+        for v in ("before", "after")
+        for n in ns
+    }
+    out["reps"] = len(rows) // (2 * len(ns))
+    return out
 
 
 def broom_time_chart():
